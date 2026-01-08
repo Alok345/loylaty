@@ -57,14 +57,35 @@ export default function TransactionsPage() {
       setError(null);
       const { data, error: fetchError } = await supabase
         .from("transactions")
-        .select("*, users(email)")
+        .select("*")
         .order("created_at", { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        throw new Error(fetchError.message || "Failed to fetch transactions");
+      }
+
+      // Fetch user emails separately and merge
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map(t => t.user_id).filter(Boolean))];
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase
+            .from("users")
+            .select("id, email")
+            .in("id", userIds);
+
+          if (usersData) {
+            const userMap = new Map(usersData.map(u => [u.id, u.email]));
+            data.forEach(transaction => {
+              transaction.userEmail = userMap.get(transaction.user_id);
+            });
+          }
+        }
+      }
+
       setTransactions(data || []);
     } catch (err) {
       console.error("Error fetching transactions:", err);
-      setError(err.message);
+      setError(err.message || err.toString() || "Failed to fetch transactions");
     } finally {
       setLoading(false);
     }
@@ -189,7 +210,7 @@ export default function TransactionsPage() {
                 <TableBody>
                   {transactions.map((transaction) => (
                     <TableRow key={transaction.id}>
-                      <TableCell>{transaction.users?.email || transaction.user_id}</TableCell>
+                      <TableCell>{transaction.userEmail || transaction.user_id}</TableCell>
                       <TableCell className="capitalize">{transaction.type}</TableCell>
                       <TableCell className={transaction.type === "credit" ? "text-green-600" : "text-red-600"}>
                         {transaction.type === "credit" ? "+" : "-"}{transaction.amount}

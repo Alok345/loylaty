@@ -57,14 +57,35 @@ export default function NotificationsPage() {
       setError(null);
       const { data, error: fetchError } = await supabase
         .from("notifications")
-        .select("*, users(email)")
+        .select("*")
         .order("created_at", { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        throw new Error(fetchError.message || "Failed to fetch notifications");
+      }
+
+      // Fetch user emails separately and merge
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map(n => n.user_id).filter(Boolean))];
+        if (userIds.length > 0) {
+          const { data: usersData } = await supabase
+            .from("users")
+            .select("id, email")
+            .in("id", userIds);
+
+          if (usersData) {
+            const userMap = new Map(usersData.map(u => [u.id, u.email]));
+            data.forEach(notification => {
+              notification.userEmail = userMap.get(notification.user_id);
+            });
+          }
+        }
+      }
+
       setNotifications(data || []);
     } catch (err) {
       console.error("Error fetching notifications:", err);
-      setError(err.message);
+      setError(err.message || err.toString() || "Failed to fetch notifications");
     } finally {
       setLoading(false);
     }
@@ -189,7 +210,7 @@ export default function NotificationsPage() {
                 <TableBody>
                   {notifications.map((notification) => (
                     <TableRow key={notification.id}>
-                      <TableCell>{notification.users?.email || notification.user_id}</TableCell>
+                      <TableCell>{notification.userEmail || notification.user_id}</TableCell>
                       <TableCell className="font-medium">{notification.title}</TableCell>
                       <TableCell className="max-w-xs truncate">{notification.message}</TableCell>
                       <TableCell>

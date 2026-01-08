@@ -73,14 +73,40 @@ export default function RedemptionsPage() {
       setError(null);
       const { data, error: fetchError } = await supabase
         .from("redemptions")
-        .select("*, users(email), rewards(name), stores(name)")
+        .select("*")
         .order("created_at", { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        throw new Error(fetchError.message || "Failed to fetch redemptions");
+      }
+
+      // Fetch related data separately and merge
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map(r => r.user_id).filter(Boolean))];
+        const rewardIds = [...new Set(data.map(r => r.reward_id).filter(Boolean))];
+        const storeIds = [...new Set(data.map(r => r.store_id).filter(Boolean))];
+
+        const [usersData, rewardsData, storesData] = await Promise.all([
+          userIds.length > 0 ? supabase.from("users").select("id, email").in("id", userIds) : { data: [] },
+          rewardIds.length > 0 ? supabase.from("rewards").select("id, name").in("id", rewardIds) : { data: [] },
+          storeIds.length > 0 ? supabase.from("stores").select("id, name").in("id", storeIds) : { data: [] },
+        ]);
+
+        const userMap = new Map((usersData.data || []).map(u => [u.id, u.email]));
+        const rewardMap = new Map((rewardsData.data || []).map(r => [r.id, r.name]));
+        const storeMap = new Map((storesData.data || []).map(s => [s.id, s.name]));
+
+        data.forEach(redemption => {
+          redemption.userEmail = userMap.get(redemption.user_id);
+          redemption.rewardName = rewardMap.get(redemption.reward_id);
+          redemption.storeName = storeMap.get(redemption.store_id);
+        });
+      }
+
       setRedemptions(data || []);
     } catch (err) {
       console.error("Error fetching redemptions:", err);
-      setError(err.message);
+      setError(err.message || err.toString() || "Failed to fetch redemptions");
     } finally {
       setLoading(false);
     }
@@ -218,9 +244,9 @@ export default function RedemptionsPage() {
                 <TableBody>
                   {redemptions.map((redemption) => (
                     <TableRow key={redemption.id}>
-                      <TableCell>{redemption.users?.email || redemption.user_id}</TableCell>
-                      <TableCell>{redemption.rewards?.name || redemption.reward_id}</TableCell>
-                      <TableCell>{redemption.stores?.name || redemption.store_id}</TableCell>
+                      <TableCell>{redemption.userEmail || redemption.user_id}</TableCell>
+                      <TableCell>{redemption.rewardName || redemption.reward_id}</TableCell>
+                      <TableCell>{redemption.storeName || redemption.store_id}</TableCell>
                       <TableCell>{redemption.points_spent}</TableCell>
                       <TableCell className="capitalize">{redemption.status}</TableCell>
                       <TableCell>

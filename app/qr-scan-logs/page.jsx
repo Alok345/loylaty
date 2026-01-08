@@ -70,14 +70,40 @@ export default function QRScanLogsPage() {
       setError(null);
       const { data, error: fetchError } = await supabase
         .from("qr_scan_logs")
-        .select("*, users(email), qr_codes(code), stores(name)")
+        .select("*")
         .order("scanned_at", { ascending: false });
 
-      if (fetchError) throw fetchError;
+      if (fetchError) {
+        throw new Error(fetchError.message || "Failed to fetch scan logs");
+      }
+
+      // Fetch related data separately and merge
+      if (data && data.length > 0) {
+        const userIds = [...new Set(data.map(l => l.user_id).filter(Boolean))];
+        const qrCodeIds = [...new Set(data.map(l => l.qr_code_id).filter(Boolean))];
+        const storeIds = [...new Set(data.map(l => l.store_id).filter(Boolean))];
+
+        const [usersData, qrCodesData, storesData] = await Promise.all([
+          userIds.length > 0 ? supabase.from("users").select("id, email").in("id", userIds) : { data: [] },
+          qrCodeIds.length > 0 ? supabase.from("qr_codes").select("id, code").in("id", qrCodeIds) : { data: [] },
+          storeIds.length > 0 ? supabase.from("stores").select("id, name").in("id", storeIds) : { data: [] },
+        ]);
+
+        const userMap = new Map((usersData.data || []).map(u => [u.id, u.email]));
+        const qrCodeMap = new Map((qrCodesData.data || []).map(q => [q.id, q.code]));
+        const storeMap = new Map((storesData.data || []).map(s => [s.id, s.name]));
+
+        data.forEach(log => {
+          log.userEmail = userMap.get(log.user_id);
+          log.qrCodeCode = qrCodeMap.get(log.qr_code_id);
+          log.storeName = storeMap.get(log.store_id);
+        });
+      }
+
       setLogs(data || []);
     } catch (err) {
       console.error("Error fetching scan logs:", err);
-      setError(err.message);
+      setError(err.message || err.toString() || "Failed to fetch scan logs");
     } finally {
       setLoading(false);
     }
@@ -206,9 +232,9 @@ export default function QRScanLogsPage() {
                 <TableBody>
                   {logs.map((log) => (
                     <TableRow key={log.id}>
-                      <TableCell>{log.users?.email || log.user_id}</TableCell>
-                      <TableCell className="font-mono">{log.qr_codes?.code || log.qr_code_id}</TableCell>
-                      <TableCell>{log.stores?.name || log.store_id}</TableCell>
+                      <TableCell>{log.userEmail || log.user_id}</TableCell>
+                      <TableCell className="font-mono">{log.qrCodeCode || log.qr_code_id}</TableCell>
+                      <TableCell>{log.storeName || log.store_id}</TableCell>
                       <TableCell>{formatDate(log.scanned_at)}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
