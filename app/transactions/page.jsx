@@ -25,11 +25,11 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Edit, Trash2, RefreshCw } from "lucide-react";
+import { Plus, Edit, Trash2, RefreshCw, AlertCircle } from "lucide-react";
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([]);
-  const [users, setUsers] = useState([]);
+  const [profiles, setProfiles] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -43,40 +43,64 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     fetchTransactions();
-    fetchUsers();
+    fetchProfiles();
   }, []);
 
-  const fetchUsers = async () => {
-    const { data } = await supabase.from("users").select("id, email");
-    if (data) setUsers(data);
+  const fetchProfiles = async () => {
+    try {
+      const { data } = await supabase.from("profiles").select("id, full_name, mobile");
+      if (data) setProfiles(data);
+    } catch (err) {
+      console.error("Error fetching profiles:", err);
+    }
   };
 
   const fetchTransactions = async () => {
     try {
       setLoading(true);
       setError(null);
+      
+      // Check session first
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log("Current session user:", session?.user?.id);
+      
+      // Fetch ALL transactions without any filters
       const { data, error: fetchError } = await supabase
         .from("transactions")
         .select("*")
         .order("created_at", { ascending: false });
 
       if (fetchError) {
-        throw new Error(fetchError.message || "Failed to fetch transactions");
+        console.error("Supabase fetch error:", fetchError);
+        let errorMessage = fetchError.message || "Failed to fetch transactions";
+        if (errorMessage.includes("row-level security policy") || errorMessage.includes("RLS")) {
+          errorMessage = `Row-level security policy violation: ${errorMessage}. Please check your RLS policies for the 'transactions' table.`;
+        }
+        throw new Error(errorMessage);
       }
 
-      // Fetch user emails separately and merge
+      console.log(`Fetched ${data?.length || 0} transactions from database`);
+      console.log("Transaction IDs:", data?.map(t => t.id));
+
+      // Fetch user names from profiles table and merge
       if (data && data.length > 0) {
         const userIds = [...new Set(data.map(t => t.user_id).filter(Boolean))];
+        console.log("Fetching user profiles for IDs:", userIds);
+        
         if (userIds.length > 0) {
-          const { data: usersData } = await supabase
-            .from("users")
-            .select("id, email")
+          const { data: profilesData, error: profilesError } = await supabase
+            .from("profiles")
+            .select("id, full_name, mobile")
             .in("id", userIds);
 
-          if (usersData) {
-            const userMap = new Map(usersData.map(u => [u.id, u.email]));
+          if (profilesError) {
+            console.error("Error fetching profiles:", profilesError);
+          } else if (profilesData) {
+            const profileMap = new Map(profilesData.map(p => [p.id, { name: p.full_name, mobile: p.mobile }]));
             data.forEach(transaction => {
-              transaction.userEmail = userMap.get(transaction.user_id);
+              const profile = profileMap.get(transaction.user_id);
+              transaction.userName = profile?.name || null;
+              transaction.userMobile = profile?.mobile || null;
             });
           }
         }
@@ -85,7 +109,11 @@ export default function TransactionsPage() {
       setTransactions(data || []);
     } catch (err) {
       console.error("Error fetching transactions:", err);
-      setError(err.message || err.toString() || "Failed to fetch transactions");
+      let errorMessage = err.message || err.toString() || "Failed to fetch transactions";
+      if (errorMessage.includes("row-level security policy") || errorMessage.includes("RLS")) {
+        errorMessage = `Row-level security policy violation: ${errorMessage}`;
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -187,58 +215,121 @@ export default function TransactionsPage() {
           <CardContent>
             {error && (
               <Alert variant="destructive" className="mb-4">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertCircle className="size-4" />
+                <AlertDescription>
+                  <div className="font-semibold mb-2">Error: {error}</div>
+                  {error.includes("Row-level security") && (
+                    <div className="text-sm mt-2 space-y-1">
+                      <p>This is likely due to Row-Level Security (RLS) policies in Supabase.</p>
+                      <p className="font-semibold">To fix this, update your RLS policies in Supabase:</p>
+                      <ol className="list-decimal list-inside space-y-1 ml-2">
+                        <li>Go to Supabase Dashboard → Table Editor → transactions table → Policies</li>
+                        <li>Create or update a SELECT policy that allows authenticated users to read all transactions</li>
+                        <li>Example policy: <code className="bg-muted px-1 rounded">CREATE POLICY "Allow authenticated users to read all transactions" ON transactions FOR SELECT TO authenticated USING (true);</code></li>
+                      </ol>
+                    </div>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
 
             {loading ? (
-              <div className="text-center py-8 text-muted-foreground">Loading...</div>
+              <div className="text-center py-8 text-muted-foreground">Loading transactions...</div>
             ) : transactions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">No transactions found</div>
+              <div className="text-center py-8 space-y-2">
+                <div className="text-muted-foreground">No transactions found</div>
+                {!error && (
+                  <div className="text-sm text-muted-foreground">
+                    If you have transactions in your database, this might be due to RLS policies restricting access.
+                  </div>
+                )}
+              </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Description</TableHead>
-                    <TableHead>Created At</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {transactions.map((transaction) => (
-                    <TableRow key={transaction.id}>
-                      <TableCell>{transaction.userEmail || transaction.user_id}</TableCell>
-                      <TableCell className="capitalize">{transaction.type}</TableCell>
-                      <TableCell className={transaction.type === "credit" ? "text-green-600" : "text-red-600"}>
-                        {transaction.type === "credit" ? "+" : "-"}{transaction.amount}
-                      </TableCell>
-                      <TableCell className="max-w-xs truncate">{transaction.description || "N/A"}</TableCell>
-                      <TableCell>{formatDate(transaction.created_at)}</TableCell>
-                      <TableCell>
-                        <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenDialog(transaction)}
-                          >
-                            <Edit className="size-4" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleDelete(transaction.id)}
-                          >
-                            <Trash2 className="size-4 text-destructive" />
-                          </Button>
-                        </div>
-                      </TableCell>
+              <>
+                {transactions.length > 0 && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="text-sm text-blue-800">
+                      Showing <strong>{transactions.length}</strong> transaction(s) from the database.
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-md border overflow-x-auto">
+                  <div className="p-4 border-b bg-muted/50">
+                    <div className="font-semibold text-sm">Table: transactions</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Columns: id, user_id, type, amount, description, created_at
+                    </div>
+                  </div>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>ID</TableHead>
+                      <TableHead>User</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Created At</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {transactions.map((transaction) => (
+                      <TableRow key={transaction.id}>
+                        <TableCell className="font-mono text-xs">
+                          {transaction.id?.substring(0, 8)}...
+                        </TableCell>
+                        <TableCell>
+                          <div className="font-medium">
+                            {transaction.userName || transaction.user_id || "N/A"}
+                          </div>
+                          {transaction.userMobile && (
+                            <div className="text-xs text-muted-foreground">
+                              {transaction.userMobile}
+                            </div>
+                          )}
+                        </TableCell>
+                        <TableCell className="capitalize">
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            transaction.type?.toUpperCase() === "CREDIT" ? "bg-green-100 text-green-800" :
+                            transaction.type?.toUpperCase() === "DEBIT" ? "bg-red-100 text-red-800" :
+                            "bg-gray-100 text-gray-800"
+                          }`}>
+                            {transaction.type || "N/A"}
+                          </span>
+                        </TableCell>
+                        <TableCell className={`font-medium ${
+                          transaction.type?.toUpperCase() === "CREDIT" ? "text-green-600" : 
+                          transaction.type?.toUpperCase() === "DEBIT" ? "text-red-600" : 
+                          "text-gray-600"
+                        }`}>
+                          {transaction.type?.toUpperCase() === "CREDIT" ? "+" : "-"}{transaction.amount?.toLocaleString() || 0}
+                        </TableCell>
+                        <TableCell className="max-w-xs truncate">{transaction.description || "N/A"}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{formatDate(transaction.created_at)}</TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleOpenDialog(transaction)}
+                            >
+                              <Edit className="size-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDelete(transaction.id)}
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
@@ -263,9 +354,9 @@ export default function TransactionsPage() {
                     required
                   >
                     <option value="">Select user</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.email}
+                    {profiles.map((profile) => (
+                      <option key={profile.id} value={profile.id}>
+                        {profile.full_name || profile.id} {profile.mobile && `(${profile.mobile})`}
                       </option>
                     ))}
                   </select>

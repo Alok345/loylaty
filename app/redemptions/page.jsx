@@ -64,20 +64,28 @@ export default function RedemptionsPage() {
 
         console.log("Fetching related data - User IDs:", userIds, "Reward IDs:", rewardIds, "Store IDs:", storeIds);
 
-        const [usersData, rewardsData, storesData] = await Promise.all([
-          userIds.length > 0 ? supabase.from("users").select("id, email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
-          rewardIds.length > 0 ? supabase.from("rewards").select("id, name").in("id", rewardIds) : Promise.resolve({ data: [], error: null }),
-          storeIds.length > 0 ? supabase.from("stores").select("id, name").in("id", storeIds) : Promise.resolve({ data: [], error: null }),
+        const [profilesData, rewardsData, storesData] = await Promise.all([
+          userIds.length > 0 ? supabase.from("profiles").select("id, full_name, mobile").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+          rewardIds.length > 0 ? supabase.from("rewards").select("id, name, cost").in("id", rewardIds) : Promise.resolve({ data: [], error: null }),
+          storeIds.length > 0 ? supabase.from("stores").select("id, name, location").in("id", storeIds) : Promise.resolve({ data: [], error: null }),
         ]);
 
-        const userMap = new Map((usersData.data || []).map(u => [u.id, u.email]));
-        const rewardMap = new Map((rewardsData.data || []).map(r => [r.id, r.name]));
-        const storeMap = new Map((storesData.data || []).map(s => [s.id, s.name]));
+        const profileMap = new Map((profilesData.data || []).map(p => [p.id, { name: p.full_name, mobile: p.mobile }]));
+        const rewardMap = new Map((rewardsData.data || []).map(r => [r.id, { name: r.name, cost: r.cost }]));
+        const storeMap = new Map((storesData.data || []).map(s => [s.id, { name: s.name, location: s.location }]));
 
         data.forEach(redemption => {
-          redemption.userEmail = userMap.get(redemption.user_id);
-          redemption.rewardName = rewardMap.get(redemption.reward_id);
-          redemption.storeName = storeMap.get(redemption.store_id);
+          const profile = profileMap.get(redemption.user_id);
+          redemption.userName = profile?.name || null;
+          redemption.userMobile = profile?.mobile || null;
+          
+          const reward = rewardMap.get(redemption.reward_id);
+          redemption.rewardName = reward?.name || null;
+          redemption.rewardCost = reward?.cost || null;
+          
+          const store = storeMap.get(redemption.store_id);
+          redemption.storeName = store?.name || null;
+          redemption.storeLocation = store?.location || null;
         });
       }
 
@@ -304,9 +312,36 @@ export default function RedemptionsPage() {
                 <TableBody>
                   {redemptions.map((redemption) => (
                     <TableRow key={redemption.id}>
-                      <TableCell>{redemption.userEmail || redemption.user_id}</TableCell>
-                      <TableCell>{redemption.rewardName || redemption.reward_id}</TableCell>
-                      <TableCell>{redemption.storeName || redemption.store_id}</TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {redemption.userName || redemption.user_id || "N/A"}
+                        </div>
+                        {redemption.userMobile && (
+                          <div className="text-xs text-muted-foreground">
+                            {redemption.userMobile}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {redemption.rewardName || redemption.reward_id || "N/A"}
+                        </div>
+                        {redemption.rewardCost && (
+                          <div className="text-xs text-muted-foreground">
+                            Cost: {redemption.rewardCost} pts
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {redemption.storeName || redemption.store_id || "N/A"}
+                        </div>
+                        {redemption.storeLocation && (
+                          <div className="text-xs text-muted-foreground">
+                            {redemption.storeLocation}
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>{redemption.points_spent}</TableCell>
                       <TableCell>
                         {editingId === redemption.id ? (

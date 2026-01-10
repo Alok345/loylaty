@@ -179,12 +179,9 @@ export default function QRScanLogsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>ID</TableHead>
-                      <TableHead>User ID</TableHead>
                       <TableHead>User Name</TableHead>
-                      <TableHead>QR Code ID</TableHead>
                       <TableHead>QR Code</TableHead>
                       <TableHead>Points</TableHead>
-                      <TableHead>Store ID</TableHead>
                       <TableHead>Store Name</TableHead>
                       <TableHead>Scanned At</TableHead>
                     </TableRow>
@@ -193,38 +190,33 @@ export default function QRScanLogsPage() {
                     {logs.map((log) => (
                       <TableRow key={log.id}>
                         <TableCell className="font-mono text-xs">
-                          {log.id || "N/A"}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {log.user_id || "N/A"}
+                          {log.id?.substring(0, 8)}...
                         </TableCell>
                         <TableCell>
                           <div className="font-medium">
-                            {log.userName || "N/A"}
+                            {log.userName || log.user_id || "N/A"}
                           </div>
-                          <div className="text-xs text-muted-foreground">
-                            {log.userMobile || ""}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {log.qr_code_id || "N/A"}
+                          {log.userMobile && (
+                            <div className="text-xs text-muted-foreground">
+                              {log.userMobile}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell>
-                          <div className="font-mono text-sm">
-                            {log.qrCodeCode || "N/A"}
+                          <div className="font-mono text-sm font-medium">
+                            {log.qrCodeCode || log.qr_code_id || "N/A"}
                           </div>
                         </TableCell>
                         <TableCell className="font-medium text-green-600">
                           +{log.qrCodePoints || 0}
                         </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {log.store_id || "N/A"}
-                        </TableCell>
                         <TableCell>
-                          <div className="font-medium">{log.storeName || "N/A"}</div>
-                          <div className="text-xs text-muted-foreground">
-                            {log.storeLocation || ""}
-                          </div>
+                          <div className="font-medium">{log.storeName || log.store_id || "N/A"}</div>
+                          {log.storeLocation && (
+                            <div className="text-xs text-muted-foreground">
+                              {log.storeLocation}
+                            </div>
+                          )}
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">
                           {formatDate(log.scanned_at)}
