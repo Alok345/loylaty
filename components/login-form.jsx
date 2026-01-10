@@ -21,7 +21,8 @@ export function LoginForm({ className, ...props }) {
       } = await supabase.auth.getSession();
 
       if (session) {
-        router.push("/dashboard");
+        router.replace("/dashboard");
+        router.refresh();
       }
     };
 
@@ -32,7 +33,8 @@ export function LoginForm({ className, ...props }) {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN' && session) {
-        router.push("/dashboard");
+        router.replace("/dashboard");
+        router.refresh();
       }
     });
 
@@ -60,16 +62,27 @@ export function LoginForm({ className, ...props }) {
         return;
       }
 
-      // ✅ Navigation will be handled by onAuthStateChange listener
-      // But we can also manually navigate as fallback
-      if (data.session) {
-        // Small delay to ensure cookies are set
-        setTimeout(() => {
-          router.push("/dashboard");
-          router.refresh();
-        }, 100);
+      // ✅ Check if session exists and redirect
+      if (data?.session) {
+        // Wait a moment for session to be fully established
+        await new Promise(resolve => setTimeout(resolve, 100));
+        
+        // Verify session
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session) {
+          // Redirect to dashboard - loading state will reset on unmount
+          router.replace("/dashboard");
+        } else {
+          alert("Session could not be verified. Please try again.");
+          setLoading(false);
+        }
+      } else {
+        alert("Login failed. No session was created.");
+        setLoading(false);
       }
     } catch (err) {
+      console.error("Login error:", err);
       alert(err.message || "An error occurred during login");
       setLoading(false);
     }
@@ -115,7 +128,7 @@ export function LoginForm({ className, ...props }) {
 
           <div className="relative hidden bg-muted md:block">
             <img
-              src="https://media.licdn.com/dms/image/v2/D560BAQFTdg2JWaNk4A/company-logo_200_200/B56ZVrCAS9HsAI-/0/1741257442946/ad2click_media_logo"
+              src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRvjBX8WF55YF5vn-iUOUcKULudlcOxs0Gaag&s"
               alt="Image"
               className="absolute inset-0 h-full w-full object-cover"
             />

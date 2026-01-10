@@ -4,8 +4,6 @@ import { useState, useEffect } from "react";
 import { PageLayout } from "@/components/PageLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -14,71 +12,49 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Edit, Trash2, RefreshCw } from "lucide-react";
+import { Edit, Trash2, RefreshCw, AlertCircle, Save, X, CheckCircle2 } from "lucide-react";
 
 export default function RedemptionsPage() {
   const [redemptions, setRedemptions] = useState([]);
-  const [users, setUsers] = useState([]);
-  const [rewards, setRewards] = useState([]);
-  const [stores, setStores] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingRedemption, setEditingRedemption] = useState(null);
-  const [formData, setFormData] = useState({
-    user_id: "",
-    reward_id: "",
-    store_id: "",
-    points_spent: 0,
-    status: "pending",
-    contact_name: "",
-    contact_mobile: "",
-  });
+  const [editingId, setEditingId] = useState(null);
+  const [editStatus, setEditStatus] = useState("");
+  const [updateError, setUpdateError] = useState(null);
+  const [updateSuccess, setUpdateSuccess] = useState(false);
 
   useEffect(() => {
     fetchRedemptions();
-    fetchUsers();
-    fetchRewards();
-    fetchStores();
   }, []);
-
-  const fetchUsers = async () => {
-    const { data } = await supabase.from("users").select("id, email");
-    if (data) setUsers(data);
-  };
-
-  const fetchRewards = async () => {
-    const { data } = await supabase.from("rewards").select("id, name");
-    if (data) setRewards(data);
-  };
-
-  const fetchStores = async () => {
-    const { data } = await supabase.from("stores").select("id, name");
-    if (data) setStores(data);
-  };
 
   const fetchRedemptions = async () => {
     try {
       setLoading(true);
       setError(null);
+      
+      // Check session first
+      const { data: { session } } = await supabase.auth.getSession();
+      console.log("Current session user:", session?.user?.id);
+      
+      // Fetch ALL redemptions without any filters
       const { data, error: fetchError } = await supabase
         .from("redemptions")
         .select("*")
         .order("created_at", { ascending: false });
 
       if (fetchError) {
-        throw new Error(fetchError.message || "Failed to fetch redemptions");
+        console.error("Supabase fetch error:", fetchError);
+        let errorMessage = fetchError.message || "Failed to fetch redemptions";
+        if (errorMessage.includes("row-level security policy") || errorMessage.includes("RLS")) {
+          errorMessage = `Row-level security policy violation: ${errorMessage}. Please check your RLS policies for the 'redemptions' table.`;
+        }
+        throw new Error(errorMessage);
       }
+
+      console.log(`Fetched ${data?.length || 0} redemptions from database`);
+      console.log("Redemption IDs:", data?.map(r => r.id));
 
       // Fetch related data separately and merge
       if (data && data.length > 0) {
@@ -86,10 +62,12 @@ export default function RedemptionsPage() {
         const rewardIds = [...new Set(data.map(r => r.reward_id).filter(Boolean))];
         const storeIds = [...new Set(data.map(r => r.store_id).filter(Boolean))];
 
+        console.log("Fetching related data - User IDs:", userIds, "Reward IDs:", rewardIds, "Store IDs:", storeIds);
+
         const [usersData, rewardsData, storesData] = await Promise.all([
-          userIds.length > 0 ? supabase.from("users").select("id, email").in("id", userIds) : { data: [] },
-          rewardIds.length > 0 ? supabase.from("rewards").select("id, name").in("id", rewardIds) : { data: [] },
-          storeIds.length > 0 ? supabase.from("stores").select("id, name").in("id", storeIds) : { data: [] },
+          userIds.length > 0 ? supabase.from("users").select("id, email").in("id", userIds) : Promise.resolve({ data: [], error: null }),
+          rewardIds.length > 0 ? supabase.from("rewards").select("id, name").in("id", rewardIds) : Promise.resolve({ data: [], error: null }),
+          storeIds.length > 0 ? supabase.from("stores").select("id, name").in("id", storeIds) : Promise.resolve({ data: [], error: null }),
         ]);
 
         const userMap = new Map((usersData.data || []).map(u => [u.id, u.email]));
@@ -104,70 +82,120 @@ export default function RedemptionsPage() {
       }
 
       setRedemptions(data || []);
+      
+      // Warn if fewer records than expected
+      if (data && data.length > 0 && data.length < 1) {
+        console.warn(`Only ${data.length} redemptions returned. If you have more records, check RLS policies.`);
+      }
     } catch (err) {
       console.error("Error fetching redemptions:", err);
-      setError(err.message || err.toString() || "Failed to fetch redemptions");
+      let errorMessage = err.message || err.toString() || "Failed to fetch redemptions";
+      if (errorMessage.includes("row-level security policy") || errorMessage.includes("RLS")) {
+        errorMessage = `Row-level security policy violation: ${errorMessage}`;
+      }
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOpenDialog = (redemption = null) => {
-    if (redemption) {
-      setEditingRedemption(redemption);
-      setFormData({
-        user_id: redemption.user_id || "",
-        reward_id: redemption.reward_id?.toString() || "",
-        store_id: redemption.store_id || "",
-        points_spent: redemption.points_spent || 0,
-        status: redemption.status || "pending",
-        contact_name: redemption.contact_name || "",
-        contact_mobile: redemption.contact_mobile || "",
-      });
-    } else {
-      setEditingRedemption(null);
-      setFormData({
-        user_id: "",
-        reward_id: "",
-        store_id: "",
-        points_spent: 0,
-        status: "pending",
-        contact_name: "",
-        contact_mobile: "",
-      });
-    }
-    setDialogOpen(true);
+  const handleEdit = (redemption) => {
+    setEditingId(redemption.id);
+    setEditStatus(redemption.status || "PENDING");
+    setUpdateError(null);
+    setUpdateSuccess(false);
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleCancelEdit = () => {
+    setEditingId(null);
+    setEditStatus("");
+    setUpdateError(null);
+    setUpdateSuccess(false);
+  };
+
+  const handleSaveStatus = async (id) => {
     try {
-      setError(null);
-      const redemptionData = {
-        ...formData,
-        reward_id: parseInt(formData.reward_id),
-      };
+      setUpdateError(null);
+      setUpdateSuccess(false);
 
-      if (editingRedemption) {
-        const { error: updateError } = await supabase
-          .from("redemptions")
-          .update(redemptionData)
-          .eq("id", editingRedemption.id);
-
-        if (updateError) throw updateError;
-      } else {
-        const { error: insertError } = await supabase
-          .from("redemptions")
-          .insert([redemptionData]);
-
-        if (insertError) throw insertError;
+      if (!id) {
+        throw new Error("Redemption ID is required");
       }
 
-      setDialogOpen(false);
-      fetchRedemptions();
+      // Check session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error("You must be logged in to update redemptions. Please refresh the page and log in again.");
+      }
+
+      console.log("Updating redemption status:", id, "to", editStatus);
+
+      const { data, error: updateErr } = await supabase
+        .from("redemptions")
+        .update({ status: editStatus.toUpperCase() })
+        .eq("id", id)
+        .select();
+
+      if (updateErr) {
+        console.error("Supabase update error:", updateErr);
+        throw updateErr;
+      }
+
+      // Check if update was successful
+      if (!data || data.length === 0) {
+        throw new Error("Update completed but no data was returned. The redemption may not exist or RLS policy prevented the update.");
+      }
+
+      console.log("Redemption status updated successfully:", data);
+      setUpdateSuccess(true);
+      
+      // Refresh the redemptions list and close edit mode after a short delay
+      setTimeout(() => {
+        setEditingId(null);
+        setEditStatus("");
+        setUpdateSuccess(false);
+        fetchRedemptions();
+      }, 1000);
     } catch (err) {
-      console.error("Error saving redemption:", err);
-      setError(err.message);
+      console.error("Error updating redemption status:", err);
+      
+      // Handle different error types
+      let errorMessage = "Failed to update redemption status";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (typeof err === "string") {
+        errorMessage = err;
+      } else if (err && typeof err === "object") {
+        const errMsg = err.message || err.details || err.hint;
+        
+        if (errMsg) {
+          errorMessage = errMsg;
+          
+          // Check for network errors
+          if (errMsg.includes("Failed to fetch") || errMsg.includes("ERR_CONNECTION_CLOSED")) {
+            errorMessage = "Network error: Could not connect to database. Please check your internet connection, refresh the page, and try again.";
+          }
+          // Check for RLS policy violations
+          else if (
+            errMsg.includes("row-level security policy") || 
+            errMsg.includes("RLS") ||
+            errMsg.includes("permission denied") ||
+            errMsg.includes("new row violates") ||
+            errMsg.toLowerCase().includes("violates row-level security")
+          ) {
+            errorMessage = `Row-level security policy violation: ${errMsg}. You may need to update your RLS policies in Supabase to allow UPDATE operations on the redemptions table.`;
+          }
+        } else {
+          try {
+            errorMessage = JSON.stringify(err);
+          } catch {
+            errorMessage = "An unknown error occurred. Please check the browser console for details.";
+          }
+        }
+      }
+      
+      setUpdateError(errorMessage);
     }
   };
 
@@ -209,26 +237,58 @@ export default function RedemptionsPage() {
                   <RefreshCw className={`size-4 mr-2 ${loading ? "animate-spin" : ""}`} />
                   Refresh
                 </Button>
-                <Button onClick={() => handleOpenDialog()}>
-                  <Plus className="size-4 mr-2" />
-                  Add Redemption
-                </Button>
               </div>
             </div>
           </CardHeader>
           <CardContent>
             {error && (
               <Alert variant="destructive" className="mb-4">
-                <AlertDescription>{error}</AlertDescription>
+                <AlertCircle className="size-4" />
+                <AlertDescription>
+                  <div className="font-semibold mb-2">Error: {error}</div>
+                  {error.includes("Row-level security") && (
+                    <div className="text-sm mt-2 space-y-1">
+                      <p>This is likely due to Row-Level Security (RLS) policies in Supabase.</p>
+                      <p className="font-semibold">To fix this, update your RLS policies in Supabase:</p>
+                      <ol className="list-decimal list-inside space-y-1 ml-2">
+                        <li>Go to Supabase Dashboard → Table Editor → redemptions table → Policies</li>
+                        <li>Create or update a SELECT policy that allows authenticated users to read all redemptions</li>
+                        <li>Example policy: <code className="bg-muted px-1 rounded">CREATE POLICY "Allow authenticated users to read all redemptions" ON redemptions FOR SELECT TO authenticated USING (true);</code></li>
+                      </ol>
+                    </div>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
 
             {loading ? (
               <div className="text-center py-8 text-muted-foreground">Loading...</div>
             ) : redemptions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">No redemptions found</div>
+              <div className="text-center py-8 space-y-2">
+                <div className="text-muted-foreground">No redemptions found</div>
+                {!error && (
+                  <div className="text-sm text-muted-foreground">
+                    If you have redemptions in your database, this might be due to RLS policies restricting access.
+                  </div>
+                )}
+              </div>
             ) : (
-              <Table>
+              <>
+                {redemptions.length > 0 && (
+                  <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
+                    <div className="text-sm text-blue-800">
+                      Showing <strong>{redemptions.length}</strong> redemption(s) from the database.
+                    </div>
+                  </div>
+                )}
+                <div className="rounded-md border overflow-x-auto">
+                  <div className="p-4 border-b bg-muted/50">
+                    <div className="font-semibold text-sm">Table: redemptions</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      Columns: id, user_id, reward_id, store_id, points_spent, status, contact_name, contact_mobile, created_at
+                    </div>
+                  </div>
+                <Table>
                 <TableHeader>
                   <TableRow>
                     <TableHead>User</TableHead>
@@ -248,20 +308,81 @@ export default function RedemptionsPage() {
                       <TableCell>{redemption.rewardName || redemption.reward_id}</TableCell>
                       <TableCell>{redemption.storeName || redemption.store_id}</TableCell>
                       <TableCell>{redemption.points_spent}</TableCell>
-                      <TableCell className="capitalize">{redemption.status}</TableCell>
                       <TableCell>
-                        {redemption.contact_name} ({redemption.contact_mobile})
+                        {editingId === redemption.id ? (
+                          <div className="flex flex-col gap-1">
+                            <select
+                              value={editStatus}
+                              onChange={(e) => setEditStatus(e.target.value)}
+                              className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm min-w-[120px]"
+                            >
+                              <option value="PENDING">Pending</option>
+                              {/* <option value="APPROVED">Approved</option>
+                              <option value="REJECTED">Rejected</option> */}
+                              <option value="COMPLETED">Completed</option>
+                            </select>
+                            <div className="flex gap-1 mt-1">
+                              <Button
+                                size="sm"
+                                variant="default"
+                                onClick={() => handleSaveStatus(redemption.id)}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <Save className="size-3" />
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={handleCancelEdit}
+                                className="h-6 px-2 text-xs"
+                              >
+                                <X className="size-3" />
+                              </Button>
+                            </div>
+                            {updateError && (
+                              <Alert variant="destructive" className="mt-1 p-1">
+                                <AlertCircle className="size-2" />
+                                <AlertDescription className="text-xs">
+                                  {updateError}
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                            {updateSuccess && (
+                              <Alert className="mt-1 p-1 border-green-500 bg-green-50">
+                                <CheckCircle2 className="size-2 text-green-600" />
+                                <AlertDescription className="text-xs text-green-800">
+                                  Status updated!
+                                </AlertDescription>
+                              </Alert>
+                            )}
+                          </div>
+                        ) : (
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            redemption.status?.toUpperCase() === "PENDING" ? "bg-yellow-100 text-yellow-800" :
+                            redemption.status?.toUpperCase() === "COMPLETED" ? "bg-green-100 text-green-800" :
+                            redemption.status?.toUpperCase() === "APPROVED" ? "bg-blue-100 text-blue-800" :
+                            redemption.status?.toUpperCase() === "REJECTED" ? "bg-red-100 text-red-800" :
+                            "bg-gray-100 text-gray-800"
+                          }`}>
+                            {redemption.status || "N/A"}
+                          </span>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {redemption.contact_name || "N/A"} {redemption.contact_mobile && `(${redemption.contact_mobile})`}
                       </TableCell>
                       <TableCell>{formatDate(redemption.created_at)}</TableCell>
                       <TableCell>
                         <div className="flex gap-2">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => handleOpenDialog(redemption)}
-                          >
-                            <Edit className="size-4" />
-                          </Button>
+                          {editingId !== redemption.id && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleEdit(redemption)}
+                            >
+                              <Edit className="size-4" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="sm"
@@ -275,123 +396,11 @@ export default function RedemptionsPage() {
                   ))}
                 </TableBody>
               </Table>
+              </div>
+              </>
             )}
           </CardContent>
         </Card>
-
-        <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>{editingRedemption ? "Edit Redemption" : "Add New Redemption"}</DialogTitle>
-              <DialogDescription>
-                {editingRedemption ? "Update redemption information" : "Create a new redemption"}
-              </DialogDescription>
-            </DialogHeader>
-            <form onSubmit={handleSubmit}>
-              <div className="grid gap-4 py-4">
-                <div className="grid gap-2">
-                  <Label htmlFor="user_id">User *</Label>
-                  <select
-                    id="user_id"
-                    value={formData.user_id}
-                    onChange={(e) => setFormData({ ...formData, user_id: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required
-                  >
-                    <option value="">Select user</option>
-                    {users.map((user) => (
-                      <option key={user.id} value={user.id}>
-                        {user.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="reward_id">Reward *</Label>
-                  <select
-                    id="reward_id"
-                    value={formData.reward_id}
-                    onChange={(e) => setFormData({ ...formData, reward_id: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required
-                  >
-                    <option value="">Select reward</option>
-                    {rewards.map((reward) => (
-                      <option key={reward.id} value={reward.id}>
-                        {reward.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="store_id">Store *</Label>
-                  <select
-                    id="store_id"
-                    value={formData.store_id}
-                    onChange={(e) => setFormData({ ...formData, store_id: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required
-                  >
-                    <option value="">Select store</option>
-                    {stores.map((store) => (
-                      <option key={store.id} value={store.id}>
-                        {store.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="points_spent">Points Spent *</Label>
-                  <Input
-                    id="points_spent"
-                    type="number"
-                    value={formData.points_spent}
-                    onChange={(e) => setFormData({ ...formData, points_spent: parseInt(e.target.value) || 0 })}
-                    required
-                    min="0"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="status">Status *</Label>
-                  <select
-                    id="status"
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                    required
-                  >
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="completed">Completed</option>
-                  </select>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="contact_name">Contact Name</Label>
-                  <Input
-                    id="contact_name"
-                    value={formData.contact_name}
-                    onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="contact_mobile">Contact Mobile</Label>
-                  <Input
-                    id="contact_mobile"
-                    value={formData.contact_mobile}
-                    onChange={(e) => setFormData({ ...formData, contact_mobile: e.target.value })}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button type="button" variant="outline" onClick={() => setDialogOpen(false)}>
-                  Cancel
-                </Button>
-                <Button type="submit">Save</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
       </div>
     </PageLayout>
   );
