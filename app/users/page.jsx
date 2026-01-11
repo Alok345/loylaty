@@ -288,12 +288,12 @@ export default function UsersPage() {
                   </Alert>
                 )}
               <div className="rounded-md border overflow-x-auto">
-                <div className="p-4 border-b bg-muted/50">
+                {/* <div className="p-4 border-b bg-muted/50">
                   <div className="font-semibold text-sm">Table: profiles</div>
                   <div className="text-xs text-muted-foreground mt-1">
                     Columns: id, full_name, mobile, is_active, role, gender, aadhar, address, nearest_store, occupation, points_balance, created_at
                   </div>
-                </div>
+                </div> */}
                 <Table>
                   <TableHeader>
                     <TableRow>

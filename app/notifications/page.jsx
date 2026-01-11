@@ -169,8 +169,8 @@ export default function NotificationsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Notifications Management</CardTitle>
-                <CardDescription>Manage and send notifications to users</CardDescription>
+                {/* <CardTitle>Notifications Management</CardTitle>
+                <CardDescription>Manage and send notifications to users</CardDescription> */}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={fetchNotifications} disabled={loading}>

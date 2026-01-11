@@ -116,8 +116,8 @@ export default function QRScanLogsPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>QR Scan Logs</CardTitle>
-                <CardDescription>View logs of QR code scans</CardDescription>
+                {/* <CardTitle>QR Scan Logs</CardTitle>
+                <CardDescription>View logs of QR code scans</CardDescription> */}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={fetchLogs} disabled={loading}>
@@ -169,12 +169,12 @@ export default function QRScanLogsPage() {
                   </div>
                 )}
                 <div className="rounded-md border overflow-x-auto">
-                  <div className="p-4 border-b bg-muted/50">
+                  {/* <div className="p-4 border-b bg-muted/50">
                     <div className="font-semibold text-sm">Table: qr_scan_logs</div>
                     <div className="text-xs text-muted-foreground mt-1">
                       Columns: id, user_id, qr_code_id, store_id, scanned_at
                     </div>
-                  </div>
+                  </div> */}
                 <Table>
                   <TableHeader>
                     <TableRow>

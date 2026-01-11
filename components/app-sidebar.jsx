@@ -107,6 +107,13 @@ const data = {
       type: "single",
       icon: Users,
     },
+    
+    {
+      title: "Dashboard User",
+      url: "/user-dashboard",
+      type: "single",
+      icon: User,
+    }
   ],
 };
 
@@ -126,23 +133,44 @@ export function AppSidebar(props) {
           // Get user info from localStorage or fetch from Supabase
           const storedUser = localStorage.getItem("user");
           if (storedUser) {
-            setUser(JSON.parse(storedUser));
+            const parsedUser = JSON.parse(storedUser);
+            // Verify user is still active
+            if (parsedUser.status === 'active') {
+              setUser(parsedUser);
+            } else {
+              // User is inactive, sign out
+              await supabase.auth.signOut();
+              localStorage.removeItem("user");
+              router.push("/login");
+              return;
+            }
           } else {
             // Fetch user from users table
-            const { data: userInfo } = await supabase
+            const { data: userInfo, error: userError } = await supabase
               .from("users")
               .select("*")
               .eq("id", session.user.id)
               .single();
+            
+            if (userError || !userInfo) {
+              console.error("User not found:", userError);
+              await supabase.auth.signOut();
+              router.push("/login");
+              return;
+            }
+
+            // Check user status
+            if (userInfo.status !== 'active') {
+              console.error("User account is inactive");
+              await supabase.auth.signOut();
+              localStorage.removeItem("user");
+              router.push("/login");
+              return;
+            }
+
             if (userInfo) {
               setUser(userInfo);
               localStorage.setItem("user", JSON.stringify(userInfo));
-            } else {
-              // Fallback to auth user
-              setUser({
-                email: session.user.email,
-                name: session.user.email?.split("@")[0] || "User",
-              });
             }
           }
         }
@@ -154,7 +182,7 @@ export function AppSidebar(props) {
     };
 
     getUser();
-  }, []);
+  }, [router]);
 
   async function handleLogout() {
     try {
@@ -187,21 +215,25 @@ export function AppSidebar(props) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className="gap-3">
               <Link href="/dashboard">
-                <div className="flex aspect-square size-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20">
-                  <Sparkles className="size-5" />
+                <div className="flex aspect-square size-60 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20">
+                  <img
+                    src="https://img.freepik.com/free-vector/rewards-scheme-customers-marketing-strategy-clients-attraction_335657-3093.jpg?semt=ais_hybrid&w=740&q=80"
+                    alt="Logo"
+                    className="h-32 w-64 object-inherit mb-5"
+                  />
                 </div>
-                <div className="flex flex-col gap-0.5 leading-none">
+                {/* <div className="flex flex-col gap-0.5 leading-none">
                   <span className="font-bold text-base">Web Leads</span>
                   <span className="text-xs text-muted-foreground">Management System</span>
-                </div>
+                </div> */}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
 
-        <div className="px-2 pt-2">
+        {/* <div className="px-2 pt-2">
           <SearchForm />
-        </div>
+        </div> */}
       </SidebarHeader>
 
       {/* MAIN MENU */}

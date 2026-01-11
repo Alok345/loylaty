@@ -137,8 +137,8 @@ export default function QRCodesPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>QR Codes Management</CardTitle>
-                <CardDescription>Generate and manage QR codes</CardDescription>
+                {/* <CardTitle>QR Codes Management</CardTitle>
+                <CardDescription>Generate and manage QR codes</CardDescription> */}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={fetchQRCodes} disabled={loading}>

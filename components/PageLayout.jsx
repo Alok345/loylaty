@@ -33,12 +33,31 @@ export function PageLayout({ children, title, breadcrumbItems = [] }) {
         return;
       }
 
-      const { data: userInfo } = await supabase
+      // Check user status in users table
+      const { data: userInfo, error: userError } = await supabase
         .from("users")
         .select("*")
         .eq("id", session.user.id)
         .single();
 
+      if (userError || !userInfo) {
+        console.error("User not found:", userError);
+        await supabase.auth.signOut();
+        localStorage.removeItem("user");
+        router.replace("/login");
+        return;
+      }
+
+      // Check if user status is active
+      if (userInfo.status !== 'active') {
+        console.error("User account is inactive");
+        await supabase.auth.signOut();
+        localStorage.removeItem("user");
+        router.replace("/login");
+        return;
+      }
+
+      // Store user info
       if (userInfo) {
         localStorage.setItem("user", JSON.stringify(userInfo));
       }

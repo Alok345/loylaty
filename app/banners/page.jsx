@@ -155,8 +155,8 @@ export default function BannersPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle>Banners Management</CardTitle>
-                <CardDescription>Manage your promotional banners and advertisements</CardDescription>
+                {/* <CardTitle>Banners Management</CardTitle> */}
+                {/* <CardDescription>Manage your promotional banners and advertisements</CardDescription> */}
               </div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={fetchBanners} disabled={loading}>

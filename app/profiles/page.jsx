@@ -47,7 +47,7 @@ export default function ProfilesPage() {
 
       const userId = session.user.id;
 
-      // Fetch user data from users table
+      // Fetch user data from users table (contains all profile data)
       const { data: userData, error: userError } = await supabase
         .from("users")
         .select("*")
@@ -56,11 +56,23 @@ export default function ProfilesPage() {
 
       if (userError) {
         console.error("Error fetching user:", userError);
+        let userErrorMessage = userError.message || "Failed to fetch user data";
+        
+        // Check for RLS policy violations
+        if (userErrorMessage.includes("row-level security policy") || 
+            userErrorMessage.includes("RLS") || 
+            userErrorMessage.includes("permission denied")) {
+          setError(`Row-level security policy violation: ${userErrorMessage}. Please check your RLS policies for the 'users' table.`);
+        } else {
+          setError(`Error loading user data: ${userErrorMessage}`);
+        }
       } else {
         setUser(userData);
+        // Since user data contains profile fields (full_name, mobile, etc.), use it as profile
+        setProfile(userData);
       }
 
-      // Fetch profile data from profiles table
+      // Try to fetch profile from profiles table as fallback (optional)
       const { data: profileData, error: profileError } = await supabase
         .from("profiles")
         .select("*")
@@ -68,11 +80,17 @@ export default function ProfilesPage() {
         .single();
 
       if (profileError) {
-        console.error("Error fetching profile:", profileError);
-        // Profile might not exist, that's okay
-        setProfile(null);
-      } else {
-        setProfile(profileData);
+        // PGRST116 is the error code for "no rows returned" - this is expected if profile doesn't exist
+        if (profileError.code === 'PGRST116' || profileError.code === 'PGRST102') {
+          // Profile doesn't exist - that's okay, user data from users table will be used
+          console.log("Profile not found for user - using users table data");
+        } else {
+          // Other errors (RLS, network, etc.) - log them but don't fail
+          console.error("Error fetching profile:", profileError);
+        }
+      } else if (profileData) {
+        // If profile exists, merge it with user data (profile takes precedence)
+        setProfile({ ...userData, ...profileData });
       }
     } catch (err) {
       console.error("Error:", err);
@@ -191,11 +209,11 @@ export default function ProfilesPage() {
           <CardHeader>
             <div className="flex items-center justify-between">
               <div>
-                <CardTitle className="flex items-center gap-2">
+                {/* <CardTitle className="flex items-center gap-2">
                   <User className="size-5" />
                   Profile Information
                 </CardTitle>
-                <CardDescription>Your personal and account details</CardDescription>
+                <CardDescription>Your personal and account details</CardDescription> */}
               </div>
               <Button
                 variant="outline"
@@ -231,7 +249,7 @@ export default function ProfilesPage() {
                   <User className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Full Name</Label>
-                    <p className="text-sm font-medium">{profile?.full_name || "Not set"}</p>
+                    <p className="text-sm font-medium">{profile?.full_name || user?.full_name || "Not set"}</p>
                   </div>
                 </div>
 
@@ -239,7 +257,7 @@ export default function ProfilesPage() {
                   <Phone className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Mobile</Label>
-                    <p className="text-sm font-medium">{profile?.mobile || "Not set"}</p>
+                    <p className="text-sm font-medium">{profile?.mobile || user?.mobile || "Not set"}</p>
                   </div>
                 </div>
 
@@ -255,7 +273,7 @@ export default function ProfilesPage() {
                   <User className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Gender</Label>
-                    <p className="text-sm font-medium capitalize">{profile?.gender || "Not set"}</p>
+                    <p className="text-sm font-medium capitalize">{profile?.gender || user?.gender || "Not set"}</p>
                   </div>
                 </div>
 
@@ -263,7 +281,7 @@ export default function ProfilesPage() {
                   <CreditCard className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Aadhar</Label>
-                    <p className="text-sm font-medium">{profile?.aadhar || "Not set"}</p>
+                    <p className="text-sm font-medium">{profile?.aadhar || user?.aadhar || "Not set"}</p>
                   </div>
                 </div>
               </div>
@@ -274,7 +292,7 @@ export default function ProfilesPage() {
                   <MapPin className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Address</Label>
-                    <p className="text-sm font-medium">{profile?.address || "Not set"}</p>
+                    <p className="text-sm font-medium">{profile?.address || user?.address || "Not set"}</p>
                   </div>
                 </div>
 
@@ -282,7 +300,7 @@ export default function ProfilesPage() {
                   <MapPin className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Nearest Store</Label>
-                    <p className="text-sm font-medium">{profile?.nearest_store || "Not set"}</p>
+                    <p className="text-sm font-medium">{profile?.nearest_store || user?.nearest_store || "Not set"}</p>
                   </div>
                 </div>
 
