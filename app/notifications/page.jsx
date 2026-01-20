@@ -116,26 +116,66 @@ export default function NotificationsPage() {
     e.preventDefault();
     try {
       setError(null);
+      
+      // Check session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error("You must be logged in to save notifications. Please refresh the page and log in again.");
+      }
+
+      // Explicitly construct payload
+      const notificationData = {
+        user_id: formData.user_id,
+        title: formData.title,
+        message: formData.message,
+        is_read: formData.is_read,
+      };
+
       if (editingNotification) {
-        const { error: updateError } = await supabase
+        console.log("Updating notification:", editingNotification.id, "with data:", notificationData);
+        const { data, error: updateError } = await supabase
           .from("notifications")
-          .update(formData)
-          .eq("id", editingNotification.id);
+          .update(notificationData)
+          .eq("id", editingNotification.id)
+          .select();
 
         if (updateError) throw updateError;
+        if (!data || data.length === 0) {
+          throw new Error("Update completed but no data was returned. The notification may not exist or RLS policy prevented the update.");
+        }
+        console.log("Notification updated successfully:", data);
       } else {
-        const { error: insertError } = await supabase
+        console.log("Inserting new notification:", notificationData);
+        const { data, error: insertError } = await supabase
           .from("notifications")
-          .insert([formData]);
+          .insert([notificationData])
+          .select();
 
         if (insertError) throw insertError;
+        if (!data || data.length === 0) {
+          throw new Error("Insert completed but no data was returned. RLS policy may have prevented the insertion.");
+        }
+        console.log("Notification inserted successfully:", data);
       }
 
       setDialogOpen(false);
       fetchNotifications();
     } catch (err) {
       console.error("Error saving notification:", err);
-      setError(err.message);
+      let errorMessage = "Failed to save notification";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === "object") {
+        const errMsg = err.message || err.details || err.hint;
+        if (errMsg) {
+          errorMessage = errMsg;
+          if (errMsg.includes("row-level security policy") || errMsg.includes("RLS") || errMsg.includes("permission denied")) {
+            errorMessage = `Row-level security policy violation: ${errMsg}. Please check your Supabase RLS policies for the 'notifications' table.`;
+          }
+        }
+      }
+      setError(errorMessage);
     }
   };
 

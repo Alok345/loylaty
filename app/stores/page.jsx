@@ -84,26 +84,65 @@ export default function StoresPage() {
     e.preventDefault();
     try {
       setError(null);
+      
+      // Check session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error("You must be logged in to save stores. Please refresh the page and log in again.");
+      }
+
+      // Explicitly construct payload
+      const storeData = {
+        name: formData.name,
+        location: formData.location,
+        active: formData.active,
+      };
+
       if (editingStore) {
-        const { error: updateError } = await supabase
+        console.log("Updating store:", editingStore.id, "with data:", storeData);
+        const { data, error: updateError } = await supabase
           .from("stores")
-          .update(formData)
-          .eq("id", editingStore.id);
+          .update(storeData)
+          .eq("id", editingStore.id)
+          .select();
 
         if (updateError) throw updateError;
+        if (!data || data.length === 0) {
+          throw new Error("Update completed but no data was returned. The store may not exist or RLS policy prevented the update.");
+        }
+        console.log("Store updated successfully:", data);
       } else {
-        const { error: insertError } = await supabase
+        console.log("Inserting new store:", storeData);
+        const { data, error: insertError } = await supabase
           .from("stores")
-          .insert([formData]);
+          .insert([storeData])
+          .select();
 
         if (insertError) throw insertError;
+        if (!data || data.length === 0) {
+          throw new Error("Insert completed but no data was returned. RLS policy may have prevented the insertion.");
+        }
+        console.log("Store inserted successfully:", data);
       }
 
       setDialogOpen(false);
       fetchStores();
     } catch (err) {
       console.error("Error saving store:", err);
-      setError(err.message);
+      let errorMessage = "Failed to save store";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === "object") {
+        const errMsg = err.message || err.details || err.hint;
+        if (errMsg) {
+          errorMessage = errMsg;
+          if (errMsg.includes("row-level security policy") || errMsg.includes("RLS") || errMsg.includes("permission denied")) {
+            errorMessage = `Row-level security policy violation: ${errMsg}. Please check your Supabase RLS policies for the 'stores' table.`;
+          }
+        }
+      }
+      setError(errorMessage);
     }
   };
 

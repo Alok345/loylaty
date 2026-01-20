@@ -96,32 +96,69 @@ export default function BannersPage() {
     e.preventDefault();
     try {
       setError(null);
+      
+      // Check session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error("You must be logged in to save banners. Please refresh the page and log in again.");
+      }
+
+      // Explicitly construct payload to avoid unwanted fields
       const bannerData = {
-        ...formData,
+        title: formData.title,
+        image_url: formData.image_url || null,
+        redirect_url: formData.redirect_url || null,
+        position: formData.position || null,
+        active: formData.active,
         start_date: formData.start_date ? new Date(formData.start_date).toISOString() : null,
         end_date: formData.end_date ? new Date(formData.end_date).toISOString() : null,
       };
 
       if (editingBanner) {
-        const { error: updateError } = await supabase
+        console.log("Updating banner:", editingBanner.id, "with data:", bannerData);
+        const { data, error: updateError } = await supabase
           .from("banners")
           .update(bannerData)
-          .eq("id", editingBanner.id);
+          .eq("id", editingBanner.id)
+          .select();
 
         if (updateError) throw updateError;
+        if (!data || data.length === 0) {
+          throw new Error("Update completed but no data was returned. The banner may not exist or RLS policy prevented the update.");
+        }
+        console.log("Banner updated successfully:", data);
       } else {
-        const { error: insertError } = await supabase
+        console.log("Inserting new banner:", bannerData);
+        const { data, error: insertError } = await supabase
           .from("banners")
-          .insert([bannerData]);
+          .insert([bannerData])
+          .select();
 
         if (insertError) throw insertError;
+        if (!data || data.length === 0) {
+          throw new Error("Insert completed but no data was returned. RLS policy may have prevented the insertion.");
+        }
+        console.log("Banner inserted successfully:", data);
       }
 
       setDialogOpen(false);
       fetchBanners();
     } catch (err) {
       console.error("Error saving banner:", err);
-      setError(err.message);
+      let errorMessage = "Failed to save banner";
+      
+      if (err instanceof Error) {
+        errorMessage = err.message;
+      } else if (err && typeof err === "object") {
+        const errMsg = err.message || err.details || err.hint;
+        if (errMsg) {
+          errorMessage = errMsg;
+          if (errMsg.includes("row-level security policy") || errMsg.includes("RLS") || errMsg.includes("permission denied")) {
+            errorMessage = `Row-level security policy violation: ${errMsg}. Please check your Supabase RLS policies for the 'banners' table.`;
+          }
+        }
+      }
+      setError(errorMessage);
     }
   };
 

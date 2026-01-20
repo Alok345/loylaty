@@ -216,12 +216,13 @@ export default function UserDashboardPage() {
       const totalRedemptions = redemptionsData?.length || 0;
       const totalScans = qrScansData?.length || 0;
 
-      setStats({
+      setStats(prev => ({
+        ...prev,
         totalPoints,
         totalTransactions,
         totalRedemptions,
         totalScans,
-      });
+      }));
 
     } catch (err) {
       console.error("Error:", err);
@@ -271,9 +272,16 @@ export default function UserDashboardPage() {
     try {
       setError(null);
       
+      // Check session first
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session) {
+        throw new Error("You must be logged in to manage users. Please refresh the page and log in again.");
+      }
+
       if (editingUser) {
+        console.log("Updating existing user:", editingUser.id);
         // Update existing user in users table
-        const { error: updateError } = await supabase
+        const { data, error: updateError } = await supabase
           .from("users")
           .update({
                 full_name: formData.full_name,
@@ -287,9 +295,14 @@ export default function UserDashboardPage() {
                 userType: "admin"
                 
               })
-              .eq("id", editingUser.id);
+              .eq("id", editingUser.id)
+              .select();
 
         if (updateError) throw updateError;
+        if (!data || data.length === 0) {
+          throw new Error("Update completed but no data was returned. The user may not exist or RLS policy prevented the update.");
+        }
+        console.log("User updated successfully:", data);
       } else {
         // Create new user via auth.signUp
         if (!formData.password || formData.password.length < 6) {
@@ -348,7 +361,7 @@ export default function UserDashboardPage() {
           if (existingUser) {
             // User record exists, update it with admin-provided data
             console.log("User record exists in users table, updating with admin data...");
-            const { error: updateError } = await supabase
+            const { data, error: updateError } = await supabase
               .from("users")
               .update({
                 email: formData.email,
@@ -362,7 +375,8 @@ export default function UserDashboardPage() {
                 nearest_store: formData.nearest_store,
                 userType: "admin"
               })
-              .eq("id", authData.user.id);
+              .eq("id", authData.user.id)
+              .select();
 
             if (updateError) {
               console.error("Error updating user record:", updateError);
@@ -376,10 +390,13 @@ export default function UserDashboardPage() {
               
               throw new Error(`User created in auth but users table update failed: ${updateErrorMessage}`);
             }
+            if (!data || data.length === 0) {
+              throw new Error("User record update failed: No data returned. RLS policy may have prevented the update.");
+            }
           } else {
             // User record doesn't exist, insert it (admin panel creates users table record)
             console.log("Inserting new user record in users table...");
-            const { error: userError } = await supabase
+            const { data, error: userError } = await supabase
               .from("users")
               .insert([{
                 id: authData.user.id,
@@ -394,10 +411,12 @@ export default function UserDashboardPage() {
                 nearest_store: formData.nearest_store,
                 userType: "admin",
                 created_at: new Date().toISOString(),
-              }]);
+              }])
+              .select();
 
             if (userError) {
               console.error("Error inserting user record:", userError);
+              // ... rest of error logic (keeping it to avoid breaking changes in complex logic)
               let insertErrorMessage = userError.message || "Failed to create user record";
               
               // Check for RLS policy violations
@@ -434,7 +453,7 @@ After creating the policy, try adding the user again.`;
               if (insertErrorMessage.includes("duplicate") || insertErrorMessage.includes("already exists") || insertErrorMessage.includes("unique")) {
                 // Try to update instead
                 console.log("User record may have been created, attempting update...");
-                const { error: updateError } = await supabase
+                const { data, error: updateError } = await supabase
                   .from("users")
                   .update({
                     full_name: formData.full_name,
@@ -447,10 +466,14 @@ After creating the policy, try adding the user again.`;
                     nearest_store: formData.nearest_store,
                     
                   })
-                  .eq("id", authData.user.id);
+                  .eq("id", authData.user.id)
+                  .select();
 
                 if (updateError) {
                   throw new Error(`User created but users table data could not be saved: ${updateError.message || insertErrorMessage}`);
+                }
+                if (!data || data.length === 0) {
+                  throw new Error("User record creation/sync failed: No data returned.");
                 }
               } else {
                 throw new Error(`User created in auth but users table insert failed: ${insertErrorMessage}`);
