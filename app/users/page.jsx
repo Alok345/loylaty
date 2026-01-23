@@ -279,14 +279,14 @@ export default function UsersPage() {
               </div>
             ) : (
               <>
-                {profiles.length < 4 && (
+                {/* {profiles.length < 4 && (
                   <Alert className="bg-blue-50 border-blue-200 mb-4">
                     <AlertDescription className="text-sm">
                       Showing <strong>{profiles.length}</strong> profile(s) from the database. 
                       {profiles.length < 4 && " If you have 4 records, check RLS policies in Supabase to allow access to all profiles."}
                     </AlertDescription>
                   </Alert>
-                )}
+                )} */}
               <div className="rounded-md border overflow-x-auto">
                 {/* <div className="p-4 border-b bg-muted/50">
                   <div className="font-semibold text-sm">Table: profiles</div>

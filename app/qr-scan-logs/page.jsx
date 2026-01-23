@@ -161,13 +161,13 @@ export default function QRScanLogsPage() {
               </div>
             ) : (
               <>
-                {logs.length > 0 && (
+                {/* {logs.length > 0 && (
                   <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-md">
                     <div className="text-sm text-blue-800">
                       Showing <strong>{logs.length}</strong> QR scan log(s) from the database.
                     </div>
                   </div>
-                )}
+                )} */}
                 <div className="rounded-md border overflow-x-auto">
                   {/* <div className="p-4 border-b bg-muted/50">
                     <div className="font-semibold text-sm">Table: qr_scan_logs</div>
