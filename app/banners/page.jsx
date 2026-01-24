@@ -36,7 +36,6 @@ export default function BannersPage() {
     title: "",
     image_url: "",
     redirect_url: "",
-    position: "",
     active: true,
     start_date: "",
     end_date: "",
@@ -72,7 +71,6 @@ export default function BannersPage() {
         title: banner.title || "",
         image_url: banner.image_url || "",
         redirect_url: banner.redirect_url || "",
-        position: banner.position || "",
         active: banner.active ?? true,
         start_date: banner.start_date ? banner.start_date.split("T")[0] : "",
         end_date: banner.end_date ? banner.end_date.split("T")[0] : "",
@@ -83,7 +81,6 @@ export default function BannersPage() {
         title: "",
         image_url: "",
         redirect_url: "",
-        position: "",
         active: true,
         start_date: "",
         end_date: "",
@@ -108,7 +105,6 @@ export default function BannersPage() {
         title: formData.title,
         image_url: formData.image_url || null,
         redirect_url: formData.redirect_url || null,
-        position: formData.position || null,
         active: formData.active,
         start_date: formData.start_date ? new Date(formData.start_date).toISOString() : null,
         end_date: formData.end_date ? new Date(formData.end_date).toISOString() : null,
@@ -225,7 +221,6 @@ export default function BannersPage() {
                     <TableHead>Title</TableHead>
                     <TableHead>Image URL</TableHead>
                     <TableHead>Redirect URL</TableHead>
-                    <TableHead>Position</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead>Start Date</TableHead>
                     <TableHead>End Date</TableHead>
@@ -238,7 +233,6 @@ export default function BannersPage() {
                       <TableCell className="font-medium">{banner.title}</TableCell>
                       <TableCell className="max-w-xs truncate">{banner.image_url || "N/A"}</TableCell>
                       <TableCell className="max-w-xs truncate">{banner.redirect_url || "N/A"}</TableCell>
-                      <TableCell>{banner.position || "N/A"}</TableCell>
                       <TableCell>
                         {banner.active ? (
                           <CheckCircle2 className="size-4 text-green-500" />
@@ -309,15 +303,6 @@ export default function BannersPage() {
                     value={formData.redirect_url}
                     onChange={(e) => setFormData({ ...formData, redirect_url: e.target.value })}
                     placeholder="https://example.com"
-                  />
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="position">Position</Label>
-                  <Input
-                    id="position"
-                    value={formData.position}
-                    onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-                    placeholder="top, bottom, sidebar, etc."
                   />
                 </div>
                 <div className="grid gap-2">

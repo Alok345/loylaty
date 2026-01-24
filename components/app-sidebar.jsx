@@ -1,9 +1,9 @@
 "use client";
 import * as React from "react";
-import { 
-  ChevronDown, 
-  ChevronRight, 
-  LogOut, 
+import {
+  ChevronDown,
+  ChevronRight,
+  LogOut,
   User,
   LayoutDashboard,
   Image,
@@ -16,7 +16,7 @@ import {
   Store,
   Receipt,
   Users,
-  Sparkles
+  Sparkles,
 } from "lucide-react";
 import { useRouter, usePathname } from "next/navigation";
 import Link from "next/link";
@@ -47,76 +47,69 @@ const data = {
       type: "single",
       icon: LayoutDashboard,
     },
-    { 
-      title: "Banners", 
-      url: "/banners", 
+    {
+      title: "Banners",
+      url: "/banners",
       type: "single",
       icon: Image,
     },
-    { 
-      title: "Notifications", 
-      url: "/notifications", 
+    {
+      title: "Notifications",
+      url: "/notifications",
       type: "single",
       icon: Bell,
     },
-    { 
-      title: "Profiles", 
-      url: "/profiles", 
+    {
+      title: "Profile",
+      url: "/profiles",
       type: "single",
       icon: UserCircle,
     },
-    { 
-      title: "QR Codes", 
-      url: "/qr-codes", 
+    {
+      title: "QR Codes",
+      url: "/qr-codes",
       type: "single",
       icon: QrCode,
     },
-    { 
-      title: "QR Scan Logs", 
-      url: "/qr-scan-logs", 
+    {
+      title: "QR Scan Logs",
+      url: "/qr-scan-logs",
       type: "single",
       icon: ScanLine,
     },
-    { 
-      title: "Redemptions", 
-      url: "/redemptions", 
+    {
+      title: "Redemptions",
+      url: "/redemptions",
       type: "single",
       icon: Gift,
     },
-    { 
-      title: "Rewards", 
-      url: "/rewards", 
+    {
+      title: "Rewards",
+      url: "/rewards",
       type: "single",
       icon: Award,
     },
-    { 
-      title: "Stores", 
-      url: "/stores", 
+    {
+      title: "Stores",
+      url: "/stores",
       type: "single",
       icon: Store,
     },
-    { 
-      title: "Transactions", 
-      url: "/transactions", 
-      type: "single",
-      icon: Receipt,
-    },
-    { 
-      title: "Users", 
-      url: "/users", 
+    {
+      title: "Users",
+      url: "/users",
       type: "single",
       icon: Users,
     },
-    
+
     {
       title: "Dashboard User",
       url: "/user-dashboard",
       type: "single",
       icon: User,
-    }
+    },
   ],
 };
-
 
 export function AppSidebar(props) {
   const router = useRouter();
@@ -128,14 +121,16 @@ export function AppSidebar(props) {
   useEffect(() => {
     const getUser = async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
         if (session) {
           // Get user info from localStorage or fetch from Supabase
           const storedUser = localStorage.getItem("user");
           if (storedUser) {
             const parsedUser = JSON.parse(storedUser);
             // Verify user is still active
-            if (parsedUser.status === 'active') {
+            if (parsedUser.status === "active") {
               setUser(parsedUser);
             } else {
               // User is inactive, sign out
@@ -151,7 +146,7 @@ export function AppSidebar(props) {
               .select("*")
               .eq("id", session.user.id)
               .single();
-            
+
             if (userError || !userInfo) {
               console.error("User not found:", userError);
               await supabase.auth.signOut();
@@ -160,7 +155,7 @@ export function AppSidebar(props) {
             }
 
             // Check user status
-            if (userInfo.status !== 'active') {
+            if (userInfo.status !== "active") {
               console.error("User account is inactive");
               await supabase.auth.signOut();
               localStorage.removeItem("user");
@@ -215,17 +210,13 @@ export function AppSidebar(props) {
           <SidebarMenuItem>
             <SidebarMenuButton size="lg" asChild className="gap-3">
               <Link href="/dashboard">
-                <div className="flex aspect-square size-60 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-primary/80 text-primary-foreground shadow-lg shadow-primary/20">
-                  <img
-                    src="https://img.freepik.com/free-vector/rewards-scheme-customers-marketing-strategy-clients-attraction_335657-3093.jpg?semt=ais_hybrid&w=740&q=80"
-                    alt="Logo"
-                    className="h-32 w-64 object-inherit mb-5"
-                  />
+                <div className="flex items-center gap-2">
+                  <img src="/icon.png" alt="Logo" className="w-12 h-12" />
+                  <div className="flex flex-col gap-0.5 leading-none">
+                    <span className="font-bold text-base">Shubh Nirman</span>
+                    <span className="text-xs text-muted-foreground">Loyalty Application</span>
+                  </div>
                 </div>
-                {/* <div className="flex flex-col gap-0.5 leading-none">
-                  <span className="font-bold text-base">Web Leads</span>
-                  <span className="text-xs text-muted-foreground">Management System</span>
-                </div> */}
               </Link>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -249,13 +240,15 @@ export function AppSidebar(props) {
                 const Icon = item.icon || LayoutDashboard;
                 return (
                   <SidebarMenuItem key={item.title}>
-                    <SidebarMenuButton 
-                      asChild 
+                    <SidebarMenuButton
+                      asChild
                       isActive={isActive}
                       className="group relative gap-3 rounded-lg transition-all duration-200 hover:bg-sidebar-accent/50"
                     >
                       <Link href={item.url}>
-                        <Icon className={`size-4 transition-colors ${isActive ? 'text-sidebar-accent-foreground' : 'text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground'}`} />
+                        <Icon
+                          className={`size-4 transition-colors ${isActive ? "text-sidebar-accent-foreground" : "text-sidebar-foreground/70 group-hover:text-sidebar-accent-foreground"}`}
+                        />
                         <span className="font-medium">{item.title}</span>
                         {isActive && (
                           <div className="absolute left-0 top-1/2 h-6 w-1 -translate-y-1/2 rounded-r-full bg-primary" />
@@ -283,19 +276,20 @@ export function AppSidebar(props) {
                         )}
                       </SidebarMenuButton>
                     </SidebarMenuItem>
-                    
+
                     {/* Dropdown Items */}
                     {isExpanded && (
                       <div className="ml-4 pl-2 border-l-2 border-sidebar-border/50">
                         <SidebarMenu>
                           {item.items.map((subItem) => {
-                            const isSubActive = pathname === subItem.url || pathname.startsWith(subItem.url + "/");
+                            const isSubActive =
+                              pathname === subItem.url || pathname.startsWith(subItem.url + "/");
                             const SubIcon = subItem.icon;
                             return (
                               <SidebarMenuItem key={subItem.title}>
-                                <SidebarMenuButton 
-                                  asChild 
-                                  className="pl-6 gap-3 rounded-lg" 
+                                <SidebarMenuButton
+                                  asChild
+                                  className="pl-6 gap-3 rounded-lg"
                                   isActive={isSubActive}
                                 >
                                   <Link href={subItem.url}>
@@ -326,8 +320,8 @@ export function AppSidebar(props) {
             {/* User Info */}
             {user && (
               <SidebarMenuItem>
-                <SidebarMenuButton 
-                  size="lg" 
+                <SidebarMenuButton
+                  size="lg"
                   className="cursor-default gap-3 rounded-lg bg-gradient-to-r from-sidebar-accent/30 to-transparent hover:from-sidebar-accent/40"
                 >
                   <div className="flex aspect-square size-10 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/10 ring-2 ring-primary/20">
@@ -344,9 +338,9 @@ export function AppSidebar(props) {
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )}
-            
+
             <Separator className="my-2 bg-sidebar-border/50" />
-            
+
             {/* Logout Button */}
             <SidebarMenuItem>
               <SidebarMenuButton

@@ -6,9 +6,21 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { supabase } from "@/lib/supabaseClient";
-import { User, Mail, Phone, MapPin, Briefcase, CreditCard, Calendar, Shield, Lock, CheckCircle2, XCircle, RefreshCw } from "lucide-react";
+import {
+  User,
+  Mail,
+  Phone,
+  MapPin,
+  Briefcase,
+  CreditCard,
+  Calendar,
+  Shield,
+  Lock,
+  CheckCircle2,
+  XCircle,
+  RefreshCw,
+} from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
 export default function ProfilesPage() {
@@ -16,7 +28,7 @@ export default function ProfilesPage() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  
+
   // Password change state
   const [passwordData, setPasswordData] = useState({
     currentPassword: "",
@@ -37,8 +49,11 @@ export default function ProfilesPage() {
       setError(null);
 
       // Get current session
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      
+      const {
+        data: { session },
+        error: sessionError,
+      } = await supabase.auth.getSession();
+
       if (sessionError || !session) {
         setError("Not authenticated");
         setLoading(false);
@@ -57,12 +72,16 @@ export default function ProfilesPage() {
       if (userError) {
         console.error("Error fetching user:", userError);
         let userErrorMessage = userError.message || "Failed to fetch user data";
-        
+
         // Check for RLS policy violations
-        if (userErrorMessage.includes("row-level security policy") || 
-            userErrorMessage.includes("RLS") || 
-            userErrorMessage.includes("permission denied")) {
-          setError(`Row-level security policy violation: ${userErrorMessage}. Please check your RLS policies for the 'users' table.`);
+        if (
+          userErrorMessage.includes("row-level security policy") ||
+          userErrorMessage.includes("RLS") ||
+          userErrorMessage.includes("permission denied")
+        ) {
+          setError(
+            `Row-level security policy violation: ${userErrorMessage}. Please check your RLS policies for the 'users' table.`,
+          );
         } else {
           setError(`Error loading user data: ${userErrorMessage}`);
         }
@@ -81,7 +100,7 @@ export default function ProfilesPage() {
 
       if (profileError) {
         // PGRST116 is the error code for "no rows returned" - this is expected if profile doesn't exist
-        if (profileError.code === 'PGRST116' || profileError.code === 'PGRST102') {
+        if (profileError.code === "PGRST116" || profileError.code === "PGRST102") {
           // Profile doesn't exist - that's okay, user data from users table will be used
           console.log("Profile not found for user - using users table data");
         } else {
@@ -107,7 +126,11 @@ export default function ProfilesPage() {
     setPasswordSuccess(false);
 
     // Validation
-    if (!passwordData.currentPassword || !passwordData.newPassword || !passwordData.confirmPassword) {
+    if (
+      !passwordData.currentPassword ||
+      !passwordData.newPassword ||
+      !passwordData.confirmPassword
+    ) {
       setPasswordError("All fields are required");
       setPasswordLoading(false);
       return;
@@ -127,8 +150,11 @@ export default function ProfilesPage() {
 
     try {
       // Get current user
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-      
+      const {
+        data: { user },
+        error: userError,
+      } = await supabase.auth.getUser();
+
       if (userError || !user) {
         setPasswordError("Unable to verify user. Please try again.");
         setPasswordLoading(false);
@@ -249,7 +275,9 @@ export default function ProfilesPage() {
                   <User className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Full Name</Label>
-                    <p className="text-sm font-medium">{profile?.full_name || user?.full_name || "Not set"}</p>
+                    <p className="text-sm font-medium">
+                      {profile?.full_name || user?.full_name || "Not set"}
+                    </p>
                   </div>
                 </div>
 
@@ -257,7 +285,9 @@ export default function ProfilesPage() {
                   <Phone className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Mobile</Label>
-                    <p className="text-sm font-medium">{profile?.mobile || user?.mobile || "Not set"}</p>
+                    <p className="text-sm font-medium">
+                      {profile?.mobile || user?.mobile || "Not set"}
+                    </p>
                   </div>
                 </div>
 
@@ -265,7 +295,9 @@ export default function ProfilesPage() {
                   <Shield className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Role</Label>
-                    <p className="text-sm font-medium capitalize">{profile?.role || user?.role || "N/A"}</p>
+                    <p className="text-sm font-medium capitalize">
+                      {profile?.role || user?.role || "N/A"}
+                    </p>
                   </div>
                 </div>
 
@@ -273,15 +305,9 @@ export default function ProfilesPage() {
                   <User className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Gender</Label>
-                    <p className="text-sm font-medium capitalize">{profile?.gender || user?.gender || "Not set"}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <CreditCard className="size-5 text-muted-foreground mt-0.5" />
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Aadhar</Label>
-                    <p className="text-sm font-medium">{profile?.aadhar || user?.aadhar || "Not set"}</p>
+                    <p className="text-sm font-medium capitalize">
+                      {profile?.gender || user?.gender || "Not set"}
+                    </p>
                   </div>
                 </div>
               </div>
@@ -292,7 +318,9 @@ export default function ProfilesPage() {
                   <MapPin className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Address</Label>
-                    <p className="text-sm font-medium">{profile?.address || user?.address || "Not set"}</p>
+                    <p className="text-sm font-medium">
+                      {profile?.address || user?.address || "Not set"}
+                    </p>
                   </div>
                 </div>
 
@@ -300,36 +328,18 @@ export default function ProfilesPage() {
                   <MapPin className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Nearest Store</Label>
-                    <p className="text-sm font-medium">{profile?.nearest_store || user?.nearest_store || "Not set"}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <Briefcase className="size-5 text-muted-foreground mt-0.5" />
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Occupation</Label>
-                    <p className="text-sm font-medium">{profile?.occupation || "Not set"}</p>
+                    <p className="text-sm font-medium">
+                      {profile?.nearest_store || user?.nearest_store || "Not set"}
+                    </p>
                   </div>
                 </div>
 
                 <div className="flex items-start gap-3">
                   <CreditCard className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Points Balance</Label>
-                    <p className="text-sm font-medium">{profile?.points_balance?.toLocaleString() || 0}</p>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  {profile?.is_active ? (
-                    <CheckCircle2 className="size-5 text-green-500 mt-0.5" />
-                  ) : (
-                    <XCircle className="size-5 text-red-500 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <Label className="text-xs text-muted-foreground">Status</Label>
-                    <p className={`text-sm font-medium ${profile?.is_active ? "text-green-600" : "text-red-600"}`}>
-                      {profile?.is_active ? "Active" : "Inactive"}
+                    <Label className="text-xs text-muted-foreground">Aadhar</Label>
+                    <p className="text-sm font-medium">
+                      {profile?.aadhar || user?.aadhar || "Not set"}
                     </p>
                   </div>
                 </div>
@@ -338,7 +348,25 @@ export default function ProfilesPage() {
                   <Calendar className="size-5 text-muted-foreground mt-0.5" />
                   <div className="flex-1">
                     <Label className="text-xs text-muted-foreground">Member Since</Label>
-                    <p className="text-sm font-medium">{formatDate(profile?.created_at || user?.created_at)}</p>
+                    <p className="text-sm font-medium">
+                      {formatDate(profile?.created_at || user?.created_at)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  {profile?.status ? (
+                    <CheckCircle2 className="size-5 text-green-500 mt-0.5" />
+                  ) : (
+                    <XCircle className="size-5 text-red-500 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <Label className="text-xs text-muted-foreground">Status</Label>
+                    <p
+                      className={`text-sm font-medium ${profile?.status ? "text-green-600" : "text-red-600"}`}
+                    >
+                      {profile?.status ? "Active" : "Inactive"}
+                    </p>
                   </div>
                 </div>
               </div>

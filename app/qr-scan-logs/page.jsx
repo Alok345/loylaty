@@ -14,31 +14,54 @@ import {
 } from "@/components/ui/table";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { RefreshCw, AlertCircle } from "lucide-react";
+import { RefreshCw, AlertCircle, Filter } from "lucide-react";
+import { DateRangeFilter } from "@/components/DateRangeFilter";
 
 export default function QRScanLogsPage() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Date range filter state
+  const [startDate, setStartDate] = useState("");
+  const [endDate, setEndDate] = useState("");
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const pageSize = 10;
+
   useEffect(() => {
     fetchLogs();
-  }, []);
+  }, [startDate, endDate, currentPage]);
 
   const fetchLogs = async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       // Check session first
       const { data: { session } } = await supabase.auth.getSession();
       console.log("Current session user:", session?.user?.id);
-      
+
       // Fetch ALL QR scan logs without any filters
-      const { data, error: fetchError } = await supabase
+      let query = supabase
         .from("qr_scan_logs")
-        .select("*")
+        .select("*", { count: "exact" })
         .order("scanned_at", { ascending: false });
+
+      // Apply date range filter
+      if (startDate) {
+        query = query.gte("scanned_at", `${startDate}T00:00:00`);
+      }
+      if (endDate) {
+        query = query.lte("scanned_at", `${endDate}T23:59:59`);
+      }
+
+      // Apply pagination
+      query = query.range((currentPage - 1) * pageSize, currentPage * pageSize - 1);
+
+      const { data, error: fetchError, count } = await query;
 
       if (fetchError) {
         console.error("Supabase fetch error:", fetchError);
@@ -74,11 +97,11 @@ export default function QRScanLogsPage() {
           const user = userMap.get(log.user_id);
           log.userName = user?.name || null;
           log.userMobile = user?.mobile || null;
-          
+
           const qrCode = qrCodeMap.get(log.qr_code_id);
           log.qrCodeCode = qrCode?.code || null;
           log.qrCodePoints = qrCode?.points || null;
-          
+
           const store = storeMap.get(log.store_id);
           log.storeName = store?.name || null;
           log.storeLocation = store?.location || null;
@@ -86,7 +109,8 @@ export default function QRScanLogsPage() {
       }
 
       setLogs(data || []);
-      
+      setTotalCount(count || 0);
+
       // Warn if fewer records than expected
       if (data && data.length === 0) {
         console.warn("No QR scan logs returned. Check RLS policies if you have records in the database.");
@@ -107,6 +131,18 @@ export default function QRScanLogsPage() {
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
     return new Date(dateString).toLocaleString();
+  };
+
+  const handleDateApply = (start, end) => {
+    setCurrentPage(1);
+    setStartDate(start);
+    setEndDate(end);
+  };
+
+  const handleDateClear = () => {
+    setCurrentPage(1);
+    setStartDate("");
+    setEndDate("");
   };
 
   return (
@@ -148,6 +184,20 @@ export default function QRScanLogsPage() {
               </Alert>
             )}
 
+            {/* Date Range Filter */}
+            <div className="flex flex-wrap items-center gap-4 mb-4 p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-2">
+                <Filter className="size-4 text-muted-foreground" />
+                <span className="text-sm font-medium">Filters:</span>
+              </div>
+              <DateRangeFilter
+                startDate={startDate}
+                endDate={endDate}
+                onApply={handleDateApply}
+                onClear={handleDateClear}
+              />
+            </div>
+
             {loading ? (
               <div className="text-center py-8 text-muted-foreground">Loading QR scan logs...</div>
             ) : logs.length === 0 ? (
@@ -175,57 +225,84 @@ export default function QRScanLogsPage() {
                       Columns: id, user_id, qr_code_id, store_id, scanned_at
                     </div>
                   </div> */}
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>ID</TableHead>
-                      <TableHead>User Name</TableHead>
-                      <TableHead>QR Code</TableHead>
-                      <TableHead>Points</TableHead>
-                      <TableHead>Store Name</TableHead>
-                      <TableHead>Scanned At</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {logs.map((log) => (
-                      <TableRow key={log.id}>
-                        <TableCell className="font-mono text-xs">
-                          {log.id?.substring(0, 8)}...
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">
-                            {log.userName || log.user_id || "N/A"}
-                          </div>
-                          {log.userMobile && (
-                            <div className="text-xs text-muted-foreground">
-                              {log.userMobile}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-mono text-sm font-medium">
-                            {log.qrCodeCode || log.qr_code_id || "N/A"}
-                          </div>
-                        </TableCell>
-                        <TableCell className="font-medium text-green-600">
-                          +{log.qrCodePoints || 0}
-                        </TableCell>
-                        <TableCell>
-                          <div className="font-medium">{log.storeName || log.store_id || "N/A"}</div>
-                          {log.storeLocation && (
-                            <div className="text-xs text-muted-foreground">
-                              {log.storeLocation}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {formatDate(log.scanned_at)}
-                        </TableCell>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>ID</TableHead>
+                        <TableHead>User Name</TableHead>
+                        <TableHead>QR Code</TableHead>
+                        <TableHead>Points</TableHead>
+                        <TableHead>Store Name</TableHead>
+                        <TableHead>Scanned At</TableHead>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                    </TableHeader>
+                    <TableBody>
+                      {logs.map((log) => (
+                        <TableRow key={log.id}>
+                          <TableCell className="font-mono text-xs">
+                            {log.id?.substring(0, 8)}...
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">
+                              {log.userName || log.user_id || "N/A"}
+                            </div>
+                            {log.userMobile && (
+                              <div className="text-xs text-muted-foreground">
+                                {log.userMobile}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-mono text-sm font-medium">
+                              {log.qrCodeCode || log.qr_code_id || "N/A"}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium text-green-600">
+                            +{log.qrCodePoints || 0}
+                          </TableCell>
+                          <TableCell>
+                            <div className="font-medium">{log.storeName || log.store_id || "N/A"}</div>
+                            {log.storeLocation && (
+                              <div className="text-xs text-muted-foreground">
+                                {log.storeLocation}
+                              </div>
+                            )}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground">
+                            {formatDate(log.scanned_at)}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
+
+                {/* Pagination */}
+                {logs.length > 0 && (
+                  <div className="mt-4 flex items-center justify-between">
+                    <div className="text-sm text-muted-foreground">
+                      Showing {Math.min((currentPage - 1) * pageSize + 1, totalCount)} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} logs
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                        disabled={currentPage === 1 || loading}
+                      >
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCurrentPage(prev => prev + 1)}
+                        disabled={currentPage * pageSize >= totalCount || loading}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
