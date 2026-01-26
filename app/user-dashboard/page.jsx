@@ -311,6 +311,11 @@ export default function UserDashboardPage() {
         }
 
         try {
+          // Pre-signup: Store current admin session to restore it later
+          // This prevents the newly created user from being automatically logged in
+          const { data: { session: currentSession } } = await supabase.auth.getSession();
+          console.log("Preserving current admin session before user creation");
+
           // Step 1: Create auth user (this will trigger profile creation via database trigger)
           const { data: authData, error: authError } = await supabase.auth.signUp({
             email: formData.email,
@@ -326,6 +331,15 @@ export default function UserDashboardPage() {
               }
             }
           });
+
+          // Post-signup: Restore original admin session if it was replaced
+          if (currentSession) {
+            console.log("Restoring admin session to prevent auto-login of new user");
+            await supabase.auth.setSession({
+              access_token: currentSession.access_token,
+              refresh_token: currentSession.refresh_token
+            });
+          }
 
           if (authError) {
             console.error("Auth signup error:", authError);
