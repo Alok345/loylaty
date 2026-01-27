@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Edit2, Save, X, RefreshCw, AlertCircle, CheckCircle2, Filter, Search, User, ArrowUpCircle, ArrowDownCircle } from "lucide-react";
+import { Edit2, Save, X, RefreshCw, AlertCircle, CheckCircle2, Filter, Search, User, ArrowUpCircle, ArrowDownCircle, PlusCircle, QrCode, Trash2 } from "lucide-react";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
 
 export default function UsersPage() {
@@ -51,9 +51,34 @@ export default function UsersPage() {
   const [transactions, setTransactions] = useState([]);
   const [transactionsLoading, setTransactionsLoading] = useState(false);
 
+  // Add Points dialog state
+  const [addPointsDialogOpen, setAddPointsDialogOpen] = useState(false);
+  const [addPointsUser, setAddPointsUser] = useState(null);
+  const [qrCodeInput, setQrCodeInput] = useState("");
+  const [selectedStore, setSelectedStore] = useState("");
+  const [stores, setStores] = useState([]);
+  const [addPointsLoading, setAddPointsLoading] = useState(false);
+  const [addPointsError, setAddPointsError] = useState(null);
+  const [addPointsSuccess, setAddPointsSuccess] = useState(null);
+
   useEffect(() => {
     fetchProfiles();
+    fetchStores();
   }, [searchQuery, startDate, endDate, currentPage]);
+
+  const fetchStores = async () => {
+    try {
+      const { data, error } = await supabase
+        .from("stores")
+        .select("id, name, location")
+        .order("name");
+
+      if (error) throw error;
+      setStores(data || []);
+    } catch (err) {
+      console.error("Error fetching stores:", err);
+    }
+  };
 
   const fetchProfiles = async () => {
     try {
@@ -293,6 +318,180 @@ export default function UsersPage() {
 
   // test
 
+  const openAddPointsDialog = (profile) => {
+    setAddPointsUser(profile);
+    setQrCodeInput("");
+    setSelectedStore("");
+    setAddPointsError(null);
+    setAddPointsSuccess(null);
+    setAddPointsDialogOpen(true);
+  };
+
+  const handleAddPoints = async () => {
+    if (!qrCodeInput.trim()) {
+      setAddPointsError("Please enter a QR code");
+      return;
+    }
+    if (!selectedStore) {
+      setAddPointsError("Please select a store");
+      return;
+    }
+
+    try {
+      setAddPointsLoading(true);
+      setAddPointsError(null);
+      setAddPointsSuccess(null);
+
+      // Validate QR code exists and is active
+      const { data: qrCode, error: qrError } = await supabase
+        .from("qr_codes")
+        .select("*")
+        .eq("code", qrCodeInput.trim())
+        .single();
+
+      if (qrError || !qrCode) {
+        setAddPointsError("Invalid QR code. Please check and try again.");
+        return;
+      }
+
+      if (!qrCode.active) {
+        setAddPointsError("This QR code has already been used.");
+        return;
+      }
+
+      // Create transaction
+      const { error: txError } = await supabase
+        .from("transactions")
+        .insert({
+          user_id: addPointsUser.id,
+          type: "EARN",
+          amount: qrCode.points,
+          description: `Points earned from QR code: ${qrCode.code}`,
+        });
+
+      if (txError) {
+        console.error("Transaction error:", txError);
+        setAddPointsError("Failed to create transaction. " + txError.message);
+        return;
+      }
+
+      // Create QR scan log
+      const { error: scanLogError } = await supabase
+        .from("qr_scan_logs")
+        .insert({
+          user_id: addPointsUser.id,
+          qr_code_id: qrCode.id,
+          store_id: selectedStore,
+          scanned_at: new Date().toISOString(),
+        });
+
+      if (scanLogError) {
+        console.error("Scan log error:", scanLogError);
+      }
+
+      // Mark QR code as used
+      const { error: updateError } = await supabase
+        .from("qr_codes")
+        .update({ active: false })
+        .eq("id", qrCode.id);
+
+      if (updateError) {
+        console.error("QR update error:", updateError);
+      }
+
+      setAddPointsSuccess(`Successfully added ${qrCode.points} points to ${addPointsUser.full_name || "user"}!`);
+      setQrCodeInput("");
+
+      // Refresh profiles to show updated points
+      fetchProfiles();
+
+    } catch (err) {
+      console.error("Error adding points:", err);
+      setAddPointsError("An error occurred. Please try again.");
+    } finally {
+      setAddPointsLoading(false);
+    }
+  };
+
+  const handleDeleteTransaction = async (transaction) => {
+    if (!confirm(`Are you sure you want to delete this transaction of ${transaction.amount} points?`)) {
+      return;
+    }
+
+    try {
+      // Extract QR code from description if it exists
+      const qrCodeMatch = transaction.description?.match(/QR code: (QR-[A-Z0-9-]+)/);
+      const qrCode = qrCodeMatch ? qrCodeMatch[1] : null;
+
+      // Delete from transactions
+      const { error: txError } = await supabase
+        .from("transactions")
+        .delete()
+        .eq("id", transaction.id);
+
+      if (txError) {
+        console.error("Error deleting transaction:", txError);
+        alert("Failed to delete transaction: " + txError.message);
+        return;
+      }
+
+      // Update the user's points balance
+      // For EARN transactions, subtract the amount
+      // For other types (REDEEM/DEBIT), add the amount back
+      const pointsAdjustment = transaction.type.toUpperCase() === "EARN"
+        ? -transaction.amount
+        : transaction.amount;
+
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("points_balance")
+        .eq("id", transaction.user_id)
+        .single();
+
+      if (profileData) {
+        const newBalance = (profileData.points_balance || 0) + pointsAdjustment;
+        await supabase
+          .from("profiles")
+          .update({ points_balance: Math.max(0, newBalance) })
+          .eq("id", transaction.user_id);
+      }
+
+      // If we found a QR code, try to delete from scan logs and reactivate QR
+      if (qrCode) {
+        // Get the QR code record
+        const { data: qrData } = await supabase
+          .from("qr_codes")
+          .select("id")
+          .eq("code", qrCode)
+          .single();
+
+        if (qrData) {
+          // Delete from qr_scan_logs
+          await supabase
+            .from("qr_scan_logs")
+            .delete()
+            .eq("qr_code_id", qrData.id)
+            .eq("user_id", transaction.user_id);
+
+          // Reactivate the QR code
+          await supabase
+            .from("qr_codes")
+            .update({ active: true })
+            .eq("id", qrData.id);
+        }
+      }
+
+      // Refresh transactions list
+      fetchTransactions(selectedUser.id);
+      // Refresh profiles to update points balance
+      fetchProfiles();
+
+    } catch (err) {
+      console.error("Error deleting transaction:", err);
+      alert("An error occurred while deleting the transaction.");
+    }
+  };
+
   const formatDate = (dateString) => {
     if (!dateString) return "N/A";
     try {
@@ -391,6 +590,7 @@ export default function UsersPage() {
                         <TableHead>Status</TableHead>
                         <TableHead>Created At</TableHead>
                         <TableHead>Actions</TableHead>
+                        <TableHead>Add Points</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -416,16 +616,8 @@ export default function UsersPage() {
                               </TableCell>
                               <TableCell className="text-sm">{profile.nearest_store || "N/A"}</TableCell>
                               <TableCell className="text-sm">{profile.occupation || "N/A"}</TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <Input
-                                  type="number"
-                                  value={editData.points_balance}
-                                  onChange={(e) =>
-                                    setEditData({ ...editData, points_balance: e.target.value })
-                                  }
-                                  className="h-8 min-w-[100px]"
-                                  placeholder="Points"
-                                />
+                              <TableCell className="font-medium">
+                                {profile.points_balance?.toLocaleString() || 0}
                               </TableCell>
                               <TableCell onClick={(e) => e.stopPropagation()}>
                                 <select
@@ -480,6 +672,17 @@ export default function UsersPage() {
                                   )}
                                 </div>
                               </TableCell>
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => openAddPointsDialog(profile)}
+                                  className="gap-1"
+                                >
+                                  <PlusCircle className="size-3" />
+                                  Add Points
+                                </Button>
+                              </TableCell>
                             </>
                           ) : (
                             <>
@@ -522,6 +725,17 @@ export default function UsersPage() {
                                 >
                                   <Edit2 className="size-3" />
                                   Edit
+                                </Button>
+                              </TableCell>
+                              <TableCell onClick={(e) => e.stopPropagation()}>
+                                <Button
+                                  size="sm"
+                                  variant="secondary"
+                                  onClick={() => openAddPointsDialog(profile)}
+                                  className="gap-1"
+                                >
+                                  <PlusCircle className="size-3" />
+                                  Add Points
                                 </Button>
                               </TableCell>
                             </>
@@ -592,6 +806,7 @@ export default function UsersPage() {
                         <TableHead>Amount</TableHead>
                         <TableHead>Description</TableHead>
                         <TableHead>Date</TableHead>
+                        <TableHead>Actions</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -626,6 +841,16 @@ export default function UsersPage() {
                           <TableCell className="text-sm text-muted-foreground">
                             {formatTransactionDate(tx.created_at)}
                           </TableCell>
+                          {tx.type.toLowerCase() === "earn" && <TableCell>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleDeleteTransaction(tx)}
+                              className="h-7 px-2"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          </TableCell>}
                         </TableRow>
                       ))}
                     </TableBody>
@@ -633,6 +858,91 @@ export default function UsersPage() {
                 </div>
               </div>
             )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Points Dialog */}
+        <Dialog open={addPointsDialogOpen} onOpenChange={setAddPointsDialogOpen}>
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <QrCode className="size-5" />
+                Add Points via QR Code
+              </DialogTitle>
+              <DialogDescription>
+                {addPointsUser && (
+                  <span>Adding points to: <strong>{addPointsUser.full_name || addPointsUser.mobile || "User"}</strong></span>
+                )}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-4">
+              {/* Error Alert */}
+              {addPointsError && (
+                <Alert variant="destructive">
+                  <AlertCircle className="size-4" />
+                  <AlertDescription>{addPointsError}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* Success Alert */}
+              {addPointsSuccess && (
+                <Alert className="border-green-500 bg-green-50">
+                  <CheckCircle2 className="size-4 text-green-600" />
+                  <AlertDescription className="text-green-800">{addPointsSuccess}</AlertDescription>
+                </Alert>
+              )}
+
+              {/* QR Code Input */}
+              <div className="space-y-2">
+                <Label htmlFor="qr-code">QR Code</Label>
+                <Input
+                  id="qr-code"
+                  placeholder="Enter QR code (e.g., QR-XXXX-XXXX-XX)"
+                  value={qrCodeInput}
+                  onChange={(e) => setQrCodeInput(e.target.value.toUpperCase())}
+                  disabled={addPointsLoading}
+                />
+              </div>
+
+              {/* Store Selection */}
+              <div className="space-y-2">
+                <Label htmlFor="store">Store Location</Label>
+                <select
+                  id="store"
+                  value={selectedStore}
+                  onChange={(e) => setSelectedStore(e.target.value)}
+                  disabled={addPointsLoading}
+                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <option value="">Select a store...</option>
+                  {stores.map((store) => (
+                    <option key={store.id} value={store.id}>
+                      {store.name} {store.location ? `(${store.location})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Submit Button */}
+              <Button
+                onClick={handleAddPoints}
+                disabled={addPointsLoading || !qrCodeInput.trim() || !selectedStore}
+                className="w-full"
+              >
+                {addPointsLoading ? (
+                  <>
+                    <RefreshCw className="size-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <PlusCircle className="size-4 mr-2" />
+                    Add Points
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
       </div>
