@@ -24,7 +24,8 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle, Image as ImageIcon } from "lucide-react";
+import { ImageUpload } from "@/components/ImageUpload";
 
 export default function BannersPage() {
   const [banners, setBanners] = useState([]);
@@ -93,7 +94,7 @@ export default function BannersPage() {
     e.preventDefault();
     try {
       setError(null);
-      
+
       // Check session first
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) {
@@ -142,7 +143,7 @@ export default function BannersPage() {
     } catch (err) {
       console.error("Error saving banner:", err);
       let errorMessage = "Failed to save banner";
-      
+
       if (err instanceof Error) {
         errorMessage = err.message;
       } else if (err && typeof err === "object") {
@@ -219,7 +220,7 @@ export default function BannersPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Title</TableHead>
-                    <TableHead>Image URL</TableHead>
+                    <TableHead>Preview</TableHead>
                     <TableHead>Redirect URL</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead>Start Date</TableHead>
@@ -231,7 +232,21 @@ export default function BannersPage() {
                   {banners.map((banner) => (
                     <TableRow key={banner.id}>
                       <TableCell className="font-medium">{banner.title}</TableCell>
-                      <TableCell className="max-w-xs truncate">{banner.image_url || "N/A"}</TableCell>
+                      <TableCell>
+                        {banner.image_url ? (
+                          <div className="w-12 h-12 rounded overflow-hidden border">
+                            <img
+                              src={banner.image_url}
+                              alt={banner.title}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center border">
+                            <ImageIcon className="size-4 text-muted-foreground" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell className="max-w-xs truncate">{banner.redirect_url || "N/A"}</TableCell>
                       <TableCell>
                         {banner.active ? (
@@ -288,12 +303,10 @@ export default function BannersPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="image_url">Image URL</Label>
-                  <Input
-                    id="image_url"
+                  <Label>Banner Image</Label>
+                  <ImageUpload
                     value={formData.image_url}
-                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                    placeholder="https://example.com/image.jpg"
+                    onChange={(url) => setFormData({ ...formData, image_url: url })}
                   />
                 </div>
                 <div className="grid gap-2">

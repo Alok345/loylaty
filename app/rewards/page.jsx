@@ -25,7 +25,8 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle, Image as ImageIcon } from "lucide-react";
+import { ImageUpload } from "@/components/ImageUpload";
 
 export default function RewardsPage() {
   const [rewards, setRewards] = useState([]);
@@ -91,7 +92,7 @@ export default function RewardsPage() {
     e.preventDefault();
     try {
       setError(null);
-      
+
       // Check session first
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) {
@@ -139,7 +140,7 @@ export default function RewardsPage() {
     } catch (err) {
       console.error("Error saving reward:", err);
       let errorMessage = "Failed to save reward";
-      
+
       if (err instanceof Error) {
         errorMessage = err.message;
       } else if (err && typeof err === "object") {
@@ -218,7 +219,7 @@ export default function RewardsPage() {
                     <TableHead>Name</TableHead>
                     <TableHead>Description</TableHead>
                     <TableHead>Cost (Points)</TableHead>
-                    <TableHead>Image URL</TableHead>
+                    <TableHead>Preview</TableHead>
                     <TableHead>Active</TableHead>
                     <TableHead>Created At</TableHead>
                     <TableHead>Actions</TableHead>
@@ -230,7 +231,21 @@ export default function RewardsPage() {
                       <TableCell className="font-medium">{reward.name}</TableCell>
                       <TableCell className="max-w-xs truncate">{reward.description || "N/A"}</TableCell>
                       <TableCell>{reward.cost}</TableCell>
-                      <TableCell className="max-w-xs truncate">{reward.image_url || "N/A"}</TableCell>
+                      <TableCell>
+                        {reward.image_url ? (
+                          <div className="w-12 h-12 rounded overflow-hidden border">
+                            <img
+                              src={reward.image_url}
+                              alt={reward.name}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <div className="w-12 h-12 rounded bg-muted flex items-center justify-center border">
+                            <ImageIcon className="size-4 text-muted-foreground" />
+                          </div>
+                        )}
+                      </TableCell>
                       <TableCell>
                         {reward.active ? (
                           <CheckCircle2 className="size-4 text-green-500" />
@@ -305,12 +320,10 @@ export default function RewardsPage() {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="image_url">Image URL</Label>
-                  <Input
-                    id="image_url"
+                  <Label>Image</Label>
+                  <ImageUpload
                     value={formData.image_url}
-                    onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
-                    placeholder="https://example.com/image.jpg"
+                    onChange={(url) => setFormData({ ...formData, image_url: url })}
                   />
                 </div>
                 <div className="flex items-center gap-2">
