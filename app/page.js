@@ -3,8 +3,8 @@
 import { LoginForm } from "@/components/login-form"
 
 export const metadata = {
-  title: "Web Leads",
-  description: "Dashboard",
+  title: "Subh Nirman",
+  description: "Admin Dashboard",
 };
 export default function LoginPage() {
   return (
