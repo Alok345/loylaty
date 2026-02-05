@@ -25,6 +25,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
 import { Edit2, Save, X, RefreshCw, AlertCircle, CheckCircle2, Filter, Search, User, ArrowUpCircle, ArrowDownCircle, PlusCircle, QrCode, Trash2 } from "lucide-react";
 import { DateRangeFilter } from "@/components/DateRangeFilter";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 export default function UsersPage() {
   const [profiles, setProfiles] = useState([]);
@@ -419,11 +425,48 @@ export default function UsersPage() {
     }
 
     try {
-      // Extract QR code from description if it exists
-      const qrCodeMatch = transaction.description?.match(/QR code: (QR-[A-Z0-9-]+)/);
-      const qrCode = qrCodeMatch ? qrCodeMatch[1] : null;
+      setTransactionsLoading(true);
 
-      // Delete from transactions
+      // 1. Extract QR code from description if it exists
+      // The description format is: "Points earned from QR code: QR-XXXX-XXXX-XX"
+      const qrCodeMatch = transaction.description?.match(/QR code:\s*(QR-[A-Z0-9-]+)/i);
+      const qrCodeStr = qrCodeMatch ? qrCodeMatch[1] : null;
+
+      console.log("Deleting transaction:", transaction.id, "Detected QR:", qrCodeStr);
+
+      // 2. If it's a QR scan transaction, clean up scan logs and reactivate QR
+      if (qrCodeStr) {
+        // Get the QR code record by its code string
+        const { data: qrData, error: findQrError } = await supabase
+          .from("qr_codes")
+          .select("id")
+          .eq("code", qrCodeStr)
+          .single();
+
+        if (qrData) {
+          console.log("Found QR record, cleaning up scan logs...");
+          // Delete from qr_scan_logs
+          const { error: logError } = await supabase
+            .from("qr_scan_logs")
+            .delete()
+            .eq("qr_code_id", qrData.id)
+            .eq("user_id", transaction.user_id);
+
+          if (logError) console.error("Error deleting scan log:", logError);
+
+          // Reactivate the QR code
+          const { error: qrUpdateError } = await supabase
+            .from("qr_codes")
+            .update({ active: true })
+            .eq("id", qrData.id);
+
+          if (qrUpdateError) console.error("Error reactivating QR:", qrUpdateError);
+        } else if (findQrError) {
+          console.error("QR code record not found for code:", qrCodeStr, findQrError);
+        }
+      }
+
+      // 3. Delete from transactions table
       const { error: txError } = await supabase
         .from("transactions")
         .delete()
@@ -431,18 +474,17 @@ export default function UsersPage() {
 
       if (txError) {
         console.error("Error deleting transaction:", txError);
-        alert("Failed to delete transaction: " + txError.message);
+        alert(`Failed to delete transaction: ${txError.message}\n(Ensure you have DELETE permissions on the transactions table)`);
         return;
       }
 
-      // Update the user's points balance
-      // For EARN transactions, subtract the amount
-      // For other types (REDEEM/DEBIT), add the amount back
-      const pointsAdjustment = transaction.type.toUpperCase() === "EARN"
+      // 4. Update the user's points balance manually
+      // Note: The database trigger only handles INSERTS, so we must adjust for DELETE here.
+      const pointsAdjustment = transaction.type?.toUpperCase() === "EARN"
         ? -transaction.amount
         : transaction.amount;
 
-      const { data: profileData } = await supabase
+      const { data: profileData, error: profileFetchError } = await supabase
         .from("profiles")
         .select("points_balance")
         .eq("id", transaction.user_id)
@@ -450,45 +492,29 @@ export default function UsersPage() {
 
       if (profileData) {
         const newBalance = (profileData.points_balance || 0) + pointsAdjustment;
-        await supabase
+        const { error: balanceUpdateError } = await supabase
           .from("profiles")
           .update({ points_balance: Math.max(0, newBalance) })
           .eq("id", transaction.user_id);
+
+        if (balanceUpdateError) console.error("Error updating points balance:", balanceUpdateError);
+      } else if (profileFetchError) {
+        console.error("Error fetching profile for balance update:", profileFetchError);
       }
 
-      // If we found a QR code, try to delete from scan logs and reactivate QR
-      if (qrCode) {
-        // Get the QR code record
-        const { data: qrData } = await supabase
-          .from("qr_codes")
-          .select("id")
-          .eq("code", qrCode)
-          .single();
-
-        if (qrData) {
-          // Delete from qr_scan_logs
-          await supabase
-            .from("qr_scan_logs")
-            .delete()
-            .eq("qr_code_id", qrData.id)
-            .eq("user_id", transaction.user_id);
-
-          // Reactivate the QR code
-          await supabase
-            .from("qr_codes")
-            .update({ active: true })
-            .eq("id", qrData.id);
-        }
+      // 5. Refresh data
+      if (selectedUser) {
+        fetchTransactions(selectedUser.id);
       }
-
-      // Refresh transactions list
-      fetchTransactions(selectedUser.id);
-      // Refresh profiles to update points balance
       fetchProfiles();
 
+      alert("Transaction deleted successfully.");
+
     } catch (err) {
-      console.error("Error deleting transaction:", err);
-      alert("An error occurred while deleting the transaction.");
+      console.error("Unexpected error in handleDeleteTransaction:", err);
+      alert("An unexpected error occurred. Please check console for details.");
+    } finally {
+      setTransactionsLoading(false);
     }
   };
 
@@ -505,6 +531,14 @@ export default function UsersPage() {
     }
   };
 
+  const renderOccupation = (occupation) => {
+    if (!occupation) return "N/A";
+    if (Array.isArray(occupation)) {
+      return occupation.length > 0 ? occupation.join(", ") : "N/A";
+    }
+    return occupation;
+  };
+
   const formatTransactionDate = (dateString) => {
     if (!dateString) return "N/A";
     try {
@@ -519,433 +553,453 @@ export default function UsersPage() {
   };
 
   return (
-    <PageLayout title="Users">
-      <div className="space-y-4">
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <div>
-                <CardTitle>Users Management</CardTitle>
-                <CardDescription>Manage user profiles from profiles table</CardDescription>
+    <TooltipProvider>
+      <PageLayout title="Users">
+        <div className="space-y-4">
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Users Management</CardTitle>
+                  <CardDescription>Manage user profiles from profiles table</CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
+                    <RefreshCw className={`size-4 mr-2 ${loading ? "animate-spin" : ""}`} />
+                    Refresh
+                  </Button>
+                </div>
               </div>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" onClick={fetchProfiles} disabled={loading}>
-                  <RefreshCw className={`size-4 mr-2 ${loading ? "animate-spin" : ""}`} />
-                  Refresh
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
+            </CardHeader>
+            <CardContent>
 
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-4 mb-4 p-4 bg-muted/50 rounded-lg">
-              <div className="flex items-center gap-2">
-                <Filter className="size-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Filters:</span>
-              </div>
-              <DateRangeFilter
-                startDate={startDate}
-                endDate={endDate}
-                onApply={handleDateApply}
-                onClear={handleDateClear}
-              />
-              <div className="flex items-center gap-2">
-                <Search className="size-4 text-muted-foreground" />
-                <Input
-                  placeholder="Search by name or mobile..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  className="w-64 h-9"
+              {/* Filters */}
+              <div className="flex flex-wrap items-center gap-4 mb-4 p-4 bg-muted/50 rounded-lg">
+                <div className="flex items-center gap-2">
+                  <Filter className="size-4 text-muted-foreground" />
+                  <span className="text-sm font-medium">Filters:</span>
+                </div>
+                <DateRangeFilter
+                  startDate={startDate}
+                  endDate={endDate}
+                  onApply={handleDateApply}
+                  onClear={handleDateClear}
                 />
-              </div>
-            </div>
-
-            {loading ? (
-              <div className="text-center py-8 text-muted-foreground">Loading profiles...</div>
-            ) : profiles.length === 0 ? (
-              <div className="text-center py-8 space-y-2">
-                <div className="text-muted-foreground">No profiles found</div>
-                {!error && (
-                  <div className="text-sm text-muted-foreground">
-                    If you have profiles in your database, this might be due to RLS policies restricting access.
-                  </div>
-                )}
-              </div>
-            ) : (
-              <>
-                <div className="rounded-md border overflow-x-auto">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>ID</TableHead>
-                        <TableHead>Full Name</TableHead>
-                        <TableHead>Mobile</TableHead>
-                        <TableHead>Gender</TableHead>
-                        <TableHead>Aadhar</TableHead>
-                        <TableHead>Address</TableHead>
-                        <TableHead>Nearest Store</TableHead>
-                        <TableHead>Occupation</TableHead>
-                        <TableHead>Points Balance</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Created At</TableHead>
-                        <TableHead>Actions</TableHead>
-                        <TableHead>Add Points</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {profiles.map((profile) => (
-                        <TableRow
-                          key={profile.id}
-                          className="cursor-pointer hover:bg-muted/50"
-                          onClick={() => handleRowClick(profile)}
-                        >
-                          {editingId === profile.id ? (
-                            <>
-                              <TableCell className="font-mono text-xs" onClick={(e) => e.stopPropagation()}>
-                                {profile.id?.substring(0, 8)}...
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {profile.full_name || "N/A"}
-                              </TableCell>
-                              <TableCell>{profile.mobile || "N/A"}</TableCell>
-                              <TableCell className="capitalize">{profile.gender || "N/A"}</TableCell>
-                              <TableCell className="text-sm">{profile.aadhar || "N/A"}</TableCell>
-                              <TableCell className="text-sm max-w-[200px] truncate">
-                                {profile.address || "N/A"}
-                              </TableCell>
-                              <TableCell className="text-sm">{profile.nearest_store || "N/A"}</TableCell>
-                              <TableCell className="text-sm">{profile.occupation || "N/A"}</TableCell>
-                              <TableCell className="font-medium">
-                                {profile.points_balance?.toLocaleString() || 0}
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <select
-                                  value={editData.is_active}
-                                  onChange={(e) =>
-                                    setEditData({ ...editData, is_active: e.target.value === "true" })
-                                  }
-                                  className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm min-w-[90px]"
-                                >
-                                  <option value="true">Active</option>
-                                  <option value="false">Inactive</option>
-                                </select>
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {formatDate(profile.created_at)}
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <div className="flex gap-1 flex-col">
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="default"
-                                      onClick={() => handleSaveEdit(profile.id)}
-                                      className="h-7 px-2"
-                                    >
-                                      <Save className="size-3" />
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="outline"
-                                      onClick={handleCancelEdit}
-                                      className="h-7 px-2"
-                                    >
-                                      <X className="size-3" />
-                                    </Button>
-                                  </div>
-                                  {updateError && (
-                                    <Alert variant="destructive" className="mt-1 p-1">
-                                      <AlertCircle className="size-2" />
-                                      <AlertDescription className="text-xs">
-                                        {updateError}
-                                      </AlertDescription>
-                                    </Alert>
-                                  )}
-                                  {updateSuccess && (
-                                    <Alert className="mt-1 p-1 border-green-500 bg-green-50">
-                                      <CheckCircle2 className="size-2 text-green-600" />
-                                      <AlertDescription className="text-xs text-green-800">
-                                        Saved!
-                                      </AlertDescription>
-                                    </Alert>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => openAddPointsDialog(profile)}
-                                  className="gap-1"
-                                >
-                                  <PlusCircle className="size-3" />
-                                  Add Points
-                                </Button>
-                              </TableCell>
-                            </>
-                          ) : (
-                            <>
-                              <TableCell className="font-mono text-xs">
-                                {profile.id?.substring(0, 8)}...
-                              </TableCell>
-                              <TableCell className="font-medium">
-                                {profile.full_name || "N/A"}
-                              </TableCell>
-                              <TableCell>{profile.mobile || "N/A"}</TableCell>
-                              <TableCell className="capitalize">{profile.gender || "N/A"}</TableCell>
-                              <TableCell className="text-sm">{profile.aadhar || "N/A"}</TableCell>
-                              <TableCell className="text-sm max-w-[200px] truncate">
-                                {profile.address || "N/A"}
-                              </TableCell>
-                              <TableCell className="text-sm">{profile.nearest_store || "N/A"}</TableCell>
-                              <TableCell className="text-sm">{profile.occupation || "N/A"}</TableCell>
-                              <TableCell className="font-medium">
-                                {profile.points_balance?.toLocaleString() || 0}
-                              </TableCell>
-                              <TableCell>
-                                <span
-                                  className={`px-2 py-1 rounded-full text-xs font-medium ${profile.is_active
-                                    ? "bg-green-100 text-green-800"
-                                    : "bg-red-100 text-red-800"
-                                    }`}
-                                >
-                                  {profile.is_active ? "Active" : "Inactive"}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {formatDate(profile.created_at)}
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleEdit(profile)}
-                                  className="gap-1"
-                                >
-                                  <Edit2 className="size-3" />
-                                  Edit
-                                </Button>
-                              </TableCell>
-                              <TableCell onClick={(e) => e.stopPropagation()}>
-                                <Button
-                                  size="sm"
-                                  variant="secondary"
-                                  onClick={() => openAddPointsDialog(profile)}
-                                  className="gap-1"
-                                >
-                                  <PlusCircle className="size-3" />
-                                  Add Points
-                                </Button>
-                              </TableCell>
-                            </>
-                          )}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                <div className="flex items-center gap-2">
+                  <Search className="size-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search by name or mobile..."
+                    value={searchQuery}
+                    onChange={(e) => handleSearchChange(e.target.value)}
+                    className="w-64 h-9"
+                  />
                 </div>
+              </div>
 
-                {/* Pagination */}
-                {profiles.length > 0 && (
-                  <div className="mt-4 flex items-center justify-between">
+              {loading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading profiles...</div>
+              ) : profiles.length === 0 ? (
+                <div className="text-center py-8 space-y-2">
+                  <div className="text-muted-foreground">No profiles found</div>
+                  {!error && (
                     <div className="text-sm text-muted-foreground">
-                      Showing {Math.min((currentPage - 1) * pageSize + 1, totalCount)} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} users
+                      If you have profiles in your database, this might be due to RLS policies restricting access.
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                        disabled={currentPage === 1 || loading}
-                      >
-                        Previous
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCurrentPage(prev => prev + 1)}
-                        disabled={currentPage * pageSize >= totalCount || loading}
-                      >
-                        Next
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Transactions Popup */}
-        <Dialog open={transactionsDialogOpen} onOpenChange={setTransactionsDialogOpen}>
-          <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <User className="size-5" />
-                Transaction History
-              </DialogTitle>
-              <DialogDescription>
-                {selectedUser?.full_name || "User"} ({selectedUser?.mobile || "N/A"})
-              </DialogDescription>
-            </DialogHeader>
-            {transactionsLoading ? (
-              <div className="text-center py-8 text-muted-foreground">Loading transactions...</div>
-            ) : transactions.length === 0 ? (
-              <div className="text-center py-8 text-muted-foreground">No transactions found for this user</div>
-            ) : (
-              <div className="space-y-4">
-                <div className="text-sm text-muted-foreground">
-                  Total: {transactions.length} transaction(s)
+                  )}
                 </div>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Amount</TableHead>
-                        <TableHead>Description</TableHead>
-                        <TableHead>Date</TableHead>
-                        <TableHead>Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {transactions.map((tx) => (
-                        <TableRow key={tx.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              {tx.type.toLowerCase() === "earn" ? (
-                                <ArrowUpCircle className="size-4 text-green-500" />
-                              ) : (
-                                <ArrowDownCircle className="size-4 text-red-500" />
-                              )}
-                              <span className={`font-medium capitalize ${tx.type.toLowerCase() === "earn"
+              ) : (
+                <>
+                  <div className="rounded-md border overflow-x-auto">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>ID</TableHead>
+                          <TableHead>Full Name</TableHead>
+                          <TableHead>Mobile</TableHead>
+                          <TableHead>Gender</TableHead>
+                          <TableHead>Aadhar</TableHead>
+                          <TableHead>Address</TableHead>
+                          <TableHead>Nearest Store</TableHead>
+                          <TableHead>Occupation</TableHead>
+                          <TableHead>Points Balance</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Created At</TableHead>
+                          <TableHead>Actions</TableHead>
+                          <TableHead>Add Points</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {profiles.map((profile) => (
+                          <TableRow
+                            key={profile.id}
+                            className="cursor-pointer hover:bg-muted/50"
+                            onClick={() => handleRowClick(profile)}
+                          >
+                            {editingId === profile.id ? (
+                              <>
+                                <TableCell className="font-mono text-xs" onClick={(e) => e.stopPropagation()}>
+                                  {profile.id?.substring(0, 8)}...
+                                </TableCell>
+                                <TableCell className="font-medium">
+                                  {profile.full_name || "N/A"}
+                                </TableCell>
+                                <TableCell>{profile.mobile || "N/A"}</TableCell>
+                                <TableCell className="capitalize">{profile.gender || "N/A"}</TableCell>
+                                <TableCell className="text-sm">{profile.aadhar || "N/A"}</TableCell>
+                                <TableCell className="text-sm max-w-[200px] truncate">
+                                  {profile.address || "N/A"}
+                                </TableCell>
+                                <TableCell className="text-sm">{profile.nearest_store || "N/A"}</TableCell>
+                                <TableCell className="text-sm truncate max-w-[150px]">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-help">{renderOccupation(profile.occupation)}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p className="max-w-xs">{renderOccupation(profile.occupation)}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell className="font-medium text-muted-foreground bg-muted/20">
+                                  {profile.points_balance?.toLocaleString() || 0}
+                                </TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <select
+                                    value={editData.is_active}
+                                    onChange={(e) =>
+                                      setEditData({ ...editData, is_active: e.target.value === "true" })
+                                    }
+                                    className="flex h-8 w-full rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm min-w-[90px]"
+                                  >
+                                    <option value="true">Active</option>
+                                    <option value="false">Inactive</option>
+                                  </select>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {formatDate(profile.created_at)}
+                                </TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <div className="flex gap-1 flex-col">
+                                    <div className="flex gap-1">
+                                      <Button
+                                        size="sm"
+                                        variant="default"
+                                        onClick={() => handleSaveEdit(profile.id)}
+                                        className="h-7 px-2"
+                                      >
+                                        <Save className="size-3" />
+                                      </Button>
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={handleCancelEdit}
+                                        className="h-7 px-2"
+                                      >
+                                        <X className="size-3" />
+                                      </Button>
+                                    </div>
+                                    {updateError && (
+                                      <Alert variant="destructive" className="mt-1 p-1">
+                                        <AlertCircle className="size-2" />
+                                        <AlertDescription className="text-xs">
+                                          {updateError}
+                                        </AlertDescription>
+                                      </Alert>
+                                    )}
+                                    {updateSuccess && (
+                                      <Alert className="mt-1 p-1 border-green-500 bg-green-50">
+                                        <CheckCircle2 className="size-2 text-green-600" />
+                                        <AlertDescription className="text-xs text-green-800">
+                                          Saved!
+                                        </AlertDescription>
+                                      </Alert>
+                                    )}
+                                  </div>
+                                </TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => openAddPointsDialog(profile)}
+                                    className="gap-1"
+                                  >
+                                    <PlusCircle className="size-3" />
+                                    Add Points
+                                  </Button>
+                                </TableCell>
+                              </>
+                            ) : (
+                              <>
+                                <TableCell className="font-mono text-xs">
+                                  {profile.id?.substring(0, 8)}...
+                                </TableCell>
+                                <TableCell className="font-medium">
+                                  {profile.full_name || "N/A"}
+                                </TableCell>
+                                <TableCell>{profile.mobile || "N/A"}</TableCell>
+                                <TableCell className="capitalize">{profile.gender || "N/A"}</TableCell>
+                                <TableCell className="text-sm">{profile.aadhar || "N/A"}</TableCell>
+                                <TableCell className="text-sm max-w-[200px] truncate">
+                                  {profile.address || "N/A"}
+                                </TableCell>
+                                <TableCell className="text-sm">{profile.nearest_store || "N/A"}</TableCell>
+                                <TableCell className="text-sm truncate max-w-[150px]">
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <span className="cursor-help">{renderOccupation(profile.occupation)}</span>
+                                    </TooltipTrigger>
+                                    <TooltipContent>
+                                      <p className="max-w-xs">{renderOccupation(profile.occupation)}</p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TableCell>
+                                <TableCell className="font-medium">
+                                  {profile.points_balance?.toLocaleString() || 0}
+                                </TableCell>
+                                <TableCell>
+                                  <span
+                                    className={`px-2 py-1 rounded-full text-xs font-medium ${profile.is_active
+                                      ? "bg-green-100 text-green-800"
+                                      : "bg-red-100 text-red-800"
+                                      }`}
+                                  >
+                                    {profile.is_active ? "Active" : "Inactive"}
+                                  </span>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {formatDate(profile.created_at)}
+                                </TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => handleEdit(profile)}
+                                    className="gap-1"
+                                  >
+                                    <Edit2 className="size-3" />
+                                    Edit
+                                  </Button>
+                                </TableCell>
+                                <TableCell onClick={(e) => e.stopPropagation()}>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={() => openAddPointsDialog(profile)}
+                                    className="gap-1"
+                                  >
+                                    <PlusCircle className="size-3" />
+                                    Add Points
+                                  </Button>
+                                </TableCell>
+                              </>
+                            )}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Pagination */}
+                  {profiles.length > 0 && (
+                    <div className="mt-4 flex items-center justify-between">
+                      <div className="text-sm text-muted-foreground">
+                        Showing {Math.min((currentPage - 1) * pageSize + 1, totalCount)} to {Math.min(currentPage * pageSize, totalCount)} of {totalCount} users
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1 || loading}
+                        >
+                          Previous
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => prev + 1)}
+                          disabled={currentPage * pageSize >= totalCount || loading}
+                        >
+                          Next
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Transactions Popup */}
+          <Dialog open={transactionsDialogOpen} onOpenChange={setTransactionsDialogOpen}>
+            <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <User className="size-5" />
+                  Transaction History
+                </DialogTitle>
+                <DialogDescription>
+                  {selectedUser?.full_name || "User"} ({selectedUser?.mobile || "N/A"})
+                </DialogDescription>
+              </DialogHeader>
+              {transactionsLoading ? (
+                <div className="text-center py-8 text-muted-foreground">Loading transactions...</div>
+              ) : transactions.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">No transactions found for this user</div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="text-sm text-muted-foreground">
+                    Total: {transactions.length} transaction(s)
+                  </div>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Amount</TableHead>
+                          <TableHead>Description</TableHead>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {transactions.map((tx) => (
+                          <TableRow key={tx.id}>
+                            <TableCell>
+                              <div className="flex items-center gap-2">
+                                {tx.type.toLowerCase() === "earn" ? (
+                                  <ArrowUpCircle className="size-4 text-green-500" />
+                                ) : (
+                                  <ArrowDownCircle className="size-4 text-red-500" />
+                                )}
+                                <span className={`font-medium capitalize ${tx.type.toLowerCase() === "earn"
+                                  ? "text-green-600"
+                                  : "text-red-600"
+                                  }`}>
+                                  {tx.type}
+                                </span>
+                              </div>
+                            </TableCell>
+                            <TableCell>
+                              <span className={`font-bold ${tx.type.toLowerCase() === "earn"
                                 ? "text-green-600"
                                 : "text-red-600"
                                 }`}>
-                                {tx.type}
+                                {tx.type.toLowerCase() === "earn" ? "+" : "-"}{tx.amount}
                               </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <span className={`font-bold ${tx.type.toLowerCase() === "earn"
-                              ? "text-green-600"
-                              : "text-red-600"
-                              }`}>
-                              {tx.type.toLowerCase() === "earn" ? "+" : "-"}{tx.amount}
-                            </span>
-                          </TableCell>
-                          <TableCell className="text-sm max-w-[200px] truncate">
-                            {tx.description || "N/A"}
-                          </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            {formatTransactionDate(tx.created_at)}
-                          </TableCell>
-                          {tx.type.toLowerCase() === "earn" && <TableCell>
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              onClick={() => handleDeleteTransaction(tx)}
-                              className="h-7 px-2"
-                            >
-                              <Trash2 className="size-3" />
-                            </Button>
-                          </TableCell>}
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                            </TableCell>
+                            <TableCell className="text-sm max-w-[200px] truncate">
+                              {tx.description || "N/A"}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {formatTransactionDate(tx.created_at)}
+                            </TableCell>
+                            {tx.type.toLowerCase() === "earn" && <TableCell>
+                              <Button
+                                size="sm"
+                                variant="destructive"
+                                onClick={() => handleDeleteTransaction(tx)}
+                                className="h-7 px-2"
+                              >
+                                <Trash2 className="size-3" />
+                              </Button>
+                            </TableCell>}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
+              )}
+            </DialogContent>
+          </Dialog>
 
-        {/* Add Points Dialog */}
-        <Dialog open={addPointsDialogOpen} onOpenChange={setAddPointsDialogOpen}>
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle className="flex items-center gap-2">
-                <QrCode className="size-5" />
-                Add Points via QR Code
-              </DialogTitle>
-              <DialogDescription>
-                {addPointsUser && (
-                  <span>Adding points to: <strong>{addPointsUser.full_name || addPointsUser.mobile || "User"}</strong></span>
+          {/* Add Points Dialog */}
+          <Dialog open={addPointsDialogOpen} onOpenChange={setAddPointsDialogOpen}>
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle className="flex items-center gap-2">
+                  <QrCode className="size-5" />
+                  Add Points via QR Code
+                </DialogTitle>
+                <DialogDescription>
+                  {addPointsUser && (
+                    <span>Adding points to: <strong>{addPointsUser.full_name || addPointsUser.mobile || "User"}</strong></span>
+                  )}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-4 py-4">
+                {/* Error Alert */}
+                {addPointsError && (
+                  <Alert variant="destructive">
+                    <AlertCircle className="size-4" />
+                    <AlertDescription>{addPointsError}</AlertDescription>
+                  </Alert>
                 )}
-              </DialogDescription>
-            </DialogHeader>
 
-            <div className="space-y-4 py-4">
-              {/* Error Alert */}
-              {addPointsError && (
-                <Alert variant="destructive">
-                  <AlertCircle className="size-4" />
-                  <AlertDescription>{addPointsError}</AlertDescription>
-                </Alert>
-              )}
+                {/* Success Alert */}
+                {addPointsSuccess && (
+                  <Alert className="border-green-500 bg-green-50">
+                    <CheckCircle2 className="size-4 text-green-600" />
+                    <AlertDescription className="text-green-800">{addPointsSuccess}</AlertDescription>
+                  </Alert>
+                )}
 
-              {/* Success Alert */}
-              {addPointsSuccess && (
-                <Alert className="border-green-500 bg-green-50">
-                  <CheckCircle2 className="size-4 text-green-600" />
-                  <AlertDescription className="text-green-800">{addPointsSuccess}</AlertDescription>
-                </Alert>
-              )}
+                {/* QR Code Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="qr-code">QR Code</Label>
+                  <Input
+                    id="qr-code"
+                    placeholder="Enter QR code (e.g., QR-XXXX-XXXX-XX)"
+                    value={qrCodeInput}
+                    onChange={(e) => setQrCodeInput(e.target.value.toUpperCase())}
+                    disabled={addPointsLoading}
+                  />
+                </div>
 
-              {/* QR Code Input */}
-              <div className="space-y-2">
-                <Label htmlFor="qr-code">QR Code</Label>
-                <Input
-                  id="qr-code"
-                  placeholder="Enter QR code (e.g., QR-XXXX-XXXX-XX)"
-                  value={qrCodeInput}
-                  onChange={(e) => setQrCodeInput(e.target.value.toUpperCase())}
-                  disabled={addPointsLoading}
-                />
-              </div>
+                {/* Store Selection */}
+                <div className="space-y-2">
+                  <Label htmlFor="store">Store Location</Label>
+                  <select
+                    id="store"
+                    value={selectedStore}
+                    onChange={(e) => setSelectedStore(e.target.value)}
+                    disabled={addPointsLoading}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <option value="">Select a store...</option>
+                    {stores.map((store) => (
+                      <option key={store.id} value={store.id}>
+                        {store.name} {store.location ? `(${store.location})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
 
-              {/* Store Selection */}
-              <div className="space-y-2">
-                <Label htmlFor="store">Store Location</Label>
-                <select
-                  id="store"
-                  value={selectedStore}
-                  onChange={(e) => setSelectedStore(e.target.value)}
-                  disabled={addPointsLoading}
-                  className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                {/* Submit Button */}
+                <Button
+                  onClick={handleAddPoints}
+                  disabled={addPointsLoading || !qrCodeInput.trim() || !selectedStore}
+                  className="w-full"
                 >
-                  <option value="">Select a store...</option>
-                  {stores.map((store) => (
-                    <option key={store.id} value={store.id}>
-                      {store.name} {store.location ? `(${store.location})` : ""}
-                    </option>
-                  ))}
-                </select>
+                  {addPointsLoading ? (
+                    <>
+                      <RefreshCw className="size-4 mr-2 animate-spin" />
+                      Processing...
+                    </>
+                  ) : (
+                    <>
+                      <PlusCircle className="size-4 mr-2" />
+                      Add Points
+                    </>
+                  )}
+                </Button>
               </div>
-
-              {/* Submit Button */}
-              <Button
-                onClick={handleAddPoints}
-                disabled={addPointsLoading || !qrCodeInput.trim() || !selectedStore}
-                className="w-full"
-              >
-                {addPointsLoading ? (
-                  <>
-                    <RefreshCw className="size-4 mr-2 animate-spin" />
-                    Processing...
-                  </>
-                ) : (
-                  <>
-                    <PlusCircle className="size-4 mr-2" />
-                    Add Points
-                  </>
-                )}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
-      </div>
-    </PageLayout>
+            </DialogContent>
+          </Dialog>
+        </div>
+      </PageLayout>
+    </TooltipProvider >
   );
 }

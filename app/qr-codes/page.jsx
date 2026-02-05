@@ -694,9 +694,9 @@ export default function QRCodesPage() {
                   <div key={i} className="sticker-cell">
                     <div className="qr-item">
                       <QRCodeSVG
-                        value={qr1.code}
+                        value={`https://loyalty-app-olive.vercel.app/scan?code=${qr1.code}`}
                         size={56}
-                        level="H"
+                        level="L"
                         includeMargin={false}
                         fgColor="#000000"
                         bgColor="#FFFFFF"
@@ -706,9 +706,9 @@ export default function QRCodesPage() {
                     {qr2 && (
                       <div className="qr-item">
                         <QRCodeSVG
-                          value={qr2.code}
+                          value={`https://loyalty-app-olive.vercel.app/scan?code=${qr2.code}`}
                           size={56}
-                          level="H"
+                          level="L"
                           includeMargin={false}
                           fgColor="#000000"
                           bgColor="#FFFFFF"
