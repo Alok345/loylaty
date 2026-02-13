@@ -3,15 +3,28 @@ import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import admin from "firebase-admin";
-import serviceAccount from "../../../serviceKey.json";
 
 // Initialize Firebase Admin if not already initialized
 if (!admin.apps.length) {
     try {
-        admin.initializeApp({
-            credential: admin.credential.cert(serviceAccount),
-            projectId: serviceAccount.project_id,
-        });
+        // Construct service account from environment variables
+        const serviceAccount = {
+            projectId: process.env.FIREBASE_PROJECT_ID,
+            clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+            // Replace literal \n with actual newlines if they are escaped in the env var
+            privateKey: process.env.FIREBASE_PRIVATE_KEY
+                ? process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+                : undefined,
+        };
+
+        if (!serviceAccount.projectId || !serviceAccount.clientEmail || !serviceAccount.privateKey) {
+            console.warn("Missing Firebase Admin environment variables. Push notifications will not work.");
+        } else {
+            admin.initializeApp({
+                credential: admin.credential.cert(serviceAccount),
+                projectId: serviceAccount.projectId,
+            });
+        }
     } catch (error) {
         console.error("Firebase admin initialization error", error);
     }
