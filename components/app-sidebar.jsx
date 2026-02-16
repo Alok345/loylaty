@@ -103,6 +103,12 @@ const data = {
     },
 
     {
+      title: "Purchase Orders",
+      url: "/purchase-orders",
+      type: "single",
+      icon: Receipt,
+    },
+    {
       title: "Dashboard User",
       url: "/user-dashboard",
       type: "single",
