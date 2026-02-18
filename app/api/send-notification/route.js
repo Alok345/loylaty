@@ -72,16 +72,16 @@ export async function POST(req) {
 
         if (targetType === "store") {
             const { data: usersData, error } = await supabase
-                .from("users")
-                .select("id, full_name, email, nearest_store, role")
+                .from("profiles")
+                .select("id, full_name, email, nearest_store, role, auth_token")
                 .eq("nearest_store", targetValue);
 
             if (error) throw new Error(`Error fetching store users: ${error.message}`);
             users = usersData || [];
         } else if (targetType === "occupation") {
             const { data: usersData, error } = await supabase
-                .from("users")
-                .select("id, full_name, email, nearest_store, role")
+                .from("profiles")
+                .select("id, full_name, email, nearest_store, role, auth_token")
                 .ilike("role", targetValue); // Case insensitive match for safety
 
             if (error) throw new Error(`Error fetching occupation users: ${error.message}`);
@@ -96,30 +96,26 @@ export async function POST(req) {
 
         const userIds = users.map(u => u.id);
 
-        // 3. Fetch FCM Tokens from Profiles
-        // We try to fetch from profiles table.
-        // Assuming profiles are linked by `id` (as it is often 1:1 with auth.users)
-        // or `user_id`.
+        // 3. Fetch FCM Tokens from Profiles as well (potential fallback or primary storage)
         const { data: profilesData, error: profilesError } = await supabase
             .from("profiles")
             .select("id, auth_token, user_id")
-            .in("id", userIds); // Try matching by ID first (common in Supabase auth linking)
+            .in("id", userIds);
 
-        // Fallback: Check if user_id column exists? No, standard query above.
-        // If empty or mismatch, maybe try joining on user_id?
+        if (profilesError) console.warn("Error fetching profiles by id:", profilesError);
+
         let finalProfiles = profilesData || [];
 
         // Check if we need to search by user_id instead (if profiles.id != user.id)
-        // We can do both queries to be safe if schema is unknown.
         if (userIds.length > 0) {
             const { data: profilesByUserId, error: error2 } = await supabase
                 .from("profiles")
                 .select("id, auth_token, user_id")
                 .in("user_id", userIds);
 
+            if (error2) console.warn("Error fetching profiles by user_id:", error2);
+
             if (profilesByUserId && profilesByUserId.length > 0) {
-                // Merge or prioritize? Profiles by user_id are more explicit.
-                // Let's add them to the list.
                 finalProfiles = [...finalProfiles, ...profilesByUserId];
             }
         }
@@ -128,11 +124,10 @@ export async function POST(req) {
         let profilesMap = {};
         if (finalProfiles) {
             finalProfiles.forEach(p => {
-                if (p.auth_token) {
-                    // If profile.id matches user.id
-                    if (userIds.includes(p.id)) profilesMap[p.id] = p;
-                    // Or if profile.user_id matches
-                    if (p.user_id && userIds.includes(p.user_id)) profilesMap[p.user_id] = p;
+                const token = p.auth_token;
+                if (token) {
+                    if (userIds.includes(p.id)) profilesMap[p.id] = token;
+                    if (p.user_id && userIds.includes(p.user_id)) profilesMap[p.user_id] = token;
                 }
             });
         }
@@ -142,8 +137,8 @@ export async function POST(req) {
         const notificationRecords = [];
 
         for (const user of users) {
-            const profile = profilesMap[user.id];
-            const token = profile?.auth_token;
+            // Priority: token from users table, then fallback to profiles table
+            const token = user.auth_token || profilesMap[user.id];
 
             if (token) {
                 // Replace @ in message with user name
