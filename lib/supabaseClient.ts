@@ -7,11 +7,11 @@ function getSupabaseClient() {
     return supabaseClient;
   }
 
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseDirectUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
   // During build, env vars might not be available
-  if (!supabaseUrl || !supabaseAnonKey) {
+  if (!supabaseDirectUrl || !supabaseAnonKey) {
     // Only warn in browser, not during build
     if (typeof window !== 'undefined') {
       console.warn('Supabase environment variables are not set. Some features may not work.');
@@ -29,6 +29,12 @@ function getSupabaseClient() {
       throw error;
     }
   } else {
+    // In the browser, proxy through Vercel rewrites to bypass Supabase domain block in India.
+    // On the server (SSR), use the direct URL since Vercel servers can reach Supabase.
+    const supabaseUrl = typeof window !== 'undefined'
+      ? `${window.location.origin}/supabase-proxy`
+      : supabaseDirectUrl;
+
     try {
       supabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey);
     } catch (error) {
@@ -45,3 +51,4 @@ function getSupabaseClient() {
 }
 
 export const supabase = getSupabaseClient();
+
