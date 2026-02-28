@@ -22,16 +22,26 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  DialogTrigger,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { supabase } from "@/lib/supabaseClient";
-import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle } from "lucide-react";
+import { Plus, Edit, Trash2, RefreshCw, CheckCircle2, XCircle, Send } from "lucide-react";
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState([]);
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // CRUD Dialog State
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingNotification, setEditingNotification] = useState(null);
   const [formData, setFormData] = useState({
@@ -41,14 +51,64 @@ export default function NotificationsPage() {
     is_read: false,
   });
 
+  // Push Notification Dialog State
+  const [pushDialogOpen, setPushDialogOpen] = useState(false);
+  const [stores, setStores] = useState([]);
+  const [roles, setRoles] = useState([]);
+  const [pushData, setPushData] = useState({
+    targetType: "store", // "store" or "occupation"
+    targetValue: "",
+    title: "",
+    message: "",
+  });
+  const [pushLoading, setPushLoading] = useState(false);
+  const [pushSuccess, setPushSuccess] = useState(null);
+  const [pushError, setPushError] = useState(null);
+
   useEffect(() => {
     fetchNotifications();
     fetchUsers();
+    fetchStores();
+    fetchRoles();
   }, []);
 
   const fetchUsers = async () => {
-    const { data } = await supabase.from("users").select("id, email");
-    if (data) setUsers(data);
+    try {
+      const { data, error } = await supabase.from("profiles").select("id, email");
+
+      if (error) {
+        console.error("Error fetching users from profiles:", error);
+        return;
+      }
+
+      if (data) setUsers(data);
+    } catch (err) {
+      console.error("Unexpected error in fetchUsers:", err);
+    }
+  };
+
+  const fetchStores = async () => {
+    const { data } = await supabase.from("stores").select("name").eq("active", true);
+    if (data) setStores(data);
+  };
+
+  const fetchRoles = async () => {
+    try {
+      console.log("Fetching roles...");
+      const { data, error } = await supabase.from("profiles").select("role");
+
+      if (error) {
+        console.error("Error fetching roles from Supabase:", error);
+        return;
+      }
+
+      if (data) {
+        const distinctRoles = [...new Set(data.map(u => u.role).filter(Boolean))];
+        setRoles(distinctRoles);
+      }
+    } catch (err) {
+      console.error("Unexpected error in fetchRoles:", err);
+    }
   };
 
   const fetchNotifications = async () => {
@@ -68,16 +128,22 @@ export default function NotificationsPage() {
       if (data && data.length > 0) {
         const userIds = [...new Set(data.map(n => n.user_id).filter(Boolean))];
         if (userIds.length > 0) {
-          const { data: usersData } = await supabase
-            .from("users")
-            .select("id, email")
-            .in("id", userIds);
+          try {
+            const { data: usersData, error: usersError } = await supabase
+              .from("profiles")
+              .select("id, email")
+              .in("id", userIds);
 
-          if (usersData) {
-            const userMap = new Map(usersData.map(u => [u.id, u.email]));
-            data.forEach(notification => {
-              notification.userEmail = userMap.get(notification.user_id);
-            });
+            if (usersError) {
+              console.error("Error fetching user profiles:", usersError);
+            } else if (usersData) {
+              const userMap = new Map(usersData.map(u => [u.id, u.email]));
+              data.forEach(notification => {
+                notification.userEmail = userMap.get(notification.user_id);
+              });
+            }
+          } catch (profileErr) {
+            console.error("Error in profile fetch:", profileErr);
           }
         }
       }
@@ -116,14 +182,12 @@ export default function NotificationsPage() {
     e.preventDefault();
     try {
       setError(null);
-      
-      // Check session first
+
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session) {
-        throw new Error("You must be logged in to save notifications. Please refresh the page and log in again.");
+        throw new Error("You must be logged in to save notifications.");
       }
 
-      // Explicitly construct payload
       const notificationData = {
         user_id: formData.user_id,
         title: formData.title,
@@ -132,7 +196,6 @@ export default function NotificationsPage() {
       };
 
       if (editingNotification) {
-        console.log("Updating notification:", editingNotification.id, "with data:", notificationData);
         const { data, error: updateError } = await supabase
           .from("notifications")
           .update(notificationData)
@@ -140,42 +203,59 @@ export default function NotificationsPage() {
           .select();
 
         if (updateError) throw updateError;
-        if (!data || data.length === 0) {
-          throw new Error("Update completed but no data was returned. The notification may not exist or RLS policy prevented the update.");
-        }
-        console.log("Notification updated successfully:", data);
       } else {
-        console.log("Inserting new notification:", notificationData);
         const { data, error: insertError } = await supabase
           .from("notifications")
           .insert([notificationData])
           .select();
 
         if (insertError) throw insertError;
-        if (!data || data.length === 0) {
-          throw new Error("Insert completed but no data was returned. RLS policy may have prevented the insertion.");
-        }
-        console.log("Notification inserted successfully:", data);
       }
 
       setDialogOpen(false);
       fetchNotifications();
     } catch (err) {
       console.error("Error saving notification:", err);
-      let errorMessage = "Failed to save notification";
-      
-      if (err instanceof Error) {
-        errorMessage = err.message;
-      } else if (err && typeof err === "object") {
-        const errMsg = err.message || err.details || err.hint;
-        if (errMsg) {
-          errorMessage = errMsg;
-          if (errMsg.includes("row-level security policy") || errMsg.includes("RLS") || errMsg.includes("permission denied")) {
-            errorMessage = `Row-level security policy violation: ${errMsg}. Please check your Supabase RLS policies for the 'notifications' table.`;
-          }
-        }
+      setError(err.message || "Failed to save notification");
+    }
+  };
+
+  const handlePushSubmit = async (e) => {
+    e.preventDefault();
+    setPushLoading(true);
+    setPushSuccess(null);
+    setPushError(null);
+
+    try {
+      const response = await fetch('/api/send-notification', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(pushData),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(result.error || "Failed to send notification");
       }
-      setError(errorMessage);
+
+      setPushSuccess(`Notification sent to ${result.successCount} users.`);
+      setPushData({ targetType: "store", targetValue: "", title: "", message: "" });
+
+      // Refresh notifications list if backend also inserts them
+      fetchNotifications();
+
+      setTimeout(() => {
+        setPushDialogOpen(false);
+        setPushSuccess(null);
+      }, 3000);
+    } catch (err) {
+      console.error("Error sending push notification:", err);
+      setPushError(err.message);
+    } finally {
+      setPushLoading(false);
     }
   };
 
@@ -192,7 +272,6 @@ export default function NotificationsPage() {
       if (deleteError) throw deleteError;
       fetchNotifications();
     } catch (err) {
-      console.error("Error deleting notification:", err);
       setError(err.message);
     }
   };
@@ -208,19 +287,125 @@ export default function NotificationsPage() {
         <Card>
           <CardHeader>
             <div className="flex items-center justify-between">
-              <div>
-                {/* <CardTitle>Notifications Management</CardTitle>
-                <CardDescription>Manage and send notifications to users</CardDescription> */}
-              </div>
+              <div></div>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" onClick={fetchNotifications} disabled={loading}>
                   <RefreshCw className={`size-4 mr-2 ${loading ? "animate-spin" : ""}`} />
                   Refresh
                 </Button>
-                <Button onClick={() => handleOpenDialog()}>
+
+                <Dialog open={pushDialogOpen} onOpenChange={setPushDialogOpen}>
+                  <DialogTrigger asChild>
+                    <Button variant="default" className="bg-indigo-600 hover:bg-indigo-700">
+                      <Send className="size-4 mr-2" />
+                      Send Push Notification
+                    </Button>
+                  </DialogTrigger>
+                  <DialogContent>
+                    <DialogHeader>
+                      <DialogTitle>Send Push Notification</DialogTitle>
+                      <DialogDescription>
+                        Send notifications to users via Firebase Cloud Messaging based on filters.
+                      </DialogDescription>
+                    </DialogHeader>
+                    {pushError && <Alert variant="destructive"><AlertDescription>{pushError}</AlertDescription></Alert>}
+                    {pushSuccess && <Alert className="bg-green-50 text-green-800 border-green-200"><CheckCircle2 className="h-4 w-4 mr-2" /> <AlertDescription>{pushSuccess}</AlertDescription></Alert>}
+
+                    <form onSubmit={handlePushSubmit} className="space-y-4 py-4">
+                      <div className="grid gap-2">
+                        <Label>Target Audience</Label>
+                        <Select
+                          value={pushData.targetType}
+                          onValueChange={(val) => setPushData({ ...pushData, targetType: val, targetValue: "" })}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select Target" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="store">Store Wise</SelectItem>
+                            <SelectItem value="occupation">Occupation Type</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+
+                      {pushData.targetType === "store" && (
+                        <div className="grid gap-2">
+                          <Label>Select Store</Label>
+                          <Select
+                            value={pushData.targetValue}
+                            onValueChange={(val) => setPushData({ ...pushData, targetValue: val })}
+                            required={pushData.targetType === "store"}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose Store" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {stores.map(store => (
+                                <SelectItem key={store.name} value={store.name}>{store.name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      {pushData.targetType === "occupation" && (
+                        <div className="grid gap-2">
+                          <Label>Select Occupation</Label>
+                          <Select
+                            value={pushData.targetValue}
+                            onValueChange={(val) => setPushData({ ...pushData, targetValue: val })}
+                            required={pushData.targetType === "occupation"}
+                          >
+                            <SelectTrigger>
+                              <SelectValue placeholder="Choose Occupation" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {roles.map(role => (
+                                <SelectItem key={role || "unknown"} value={role || "Unknown"}>
+                                  {role ? role.charAt(0).toUpperCase() + role.slice(1) : "Unknown"}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      )}
+
+                      <div className="grid gap-2">
+                        <Label>Title</Label>
+                        <Input
+                          value={pushData.title}
+                          onChange={(e) => setPushData({ ...pushData, title: e.target.value })}
+                          required
+                          placeholder="Notification Title"
+                        />
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label>Message</Label>
+                        <Textarea
+                          value={pushData.message}
+                          onChange={(e) => setPushData({ ...pushData, message: e.target.value })}
+                          required
+                          placeholder="Type your message here. Use @ to insert user's name."
+                          rows={4}
+                        />
+                        <p className="text-xs text-muted-foreground">Tip: Use '@' as a placeholder for the user's name.</p>
+                      </div>
+
+                      <DialogFooter>
+                        <Button type="button" variant="outline" onClick={() => setPushDialogOpen(false)}>Cancel</Button>
+                        <Button type="submit" disabled={pushLoading}>
+                          {pushLoading ? "Sending..." : "Send Notification"}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
+
+                {/* <Button onClick={() => handleOpenDialog()}>
                   <Plus className="size-4 mr-2" />
-                  Add Notification
-                </Button>
+                  Add Manual Log
+                </Button> */}
               </div>
             </div>
           </CardHeader>
@@ -290,9 +475,9 @@ export default function NotificationsPage() {
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>{editingNotification ? "Edit Notification" : "Add New Notification"}</DialogTitle>
+              <DialogTitle>{editingNotification ? "Edit Notification Log" : "Add Notification Log"}</DialogTitle>
               <DialogDescription>
-                {editingNotification ? "Update notification" : "Create a new notification"}
+                {editingNotification ? "Update notification record" : "Manually add a notification record"}
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={handleSubmit}>
